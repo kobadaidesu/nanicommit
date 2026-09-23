@@ -1,4 +1,4 @@
-// Command commitcoach records Git commits as structured JSON snapshots.
+// Command commitcoach turns Git commits into JSON for the learning backend.
 //
 // See README.md for usage.
 package main

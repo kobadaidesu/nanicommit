@@ -11,12 +11,15 @@ import (
 
 	"github.com/kobadaidesu/hook-test/internal/gitrepo"
 	"github.com/kobadaidesu/hook-test/internal/hooks"
+	"github.com/kobadaidesu/hook-test/internal/repoid"
 	"github.com/kobadaidesu/hook-test/internal/storage"
 )
 
 func runInit(args []string, stdout, stderr io.Writer) int {
-	fs := newFlagSet("init", "Install a post-commit hook in the current repository that runs this commitcoach binary.\n"+
+	fs := newFlagSet("init [--repository-id UUID]", "Install a post-commit hook in the current repository that runs this commitcoach binary,\n"+
+		"and save the repository ID in the local git config ("+repoid.ConfigKey+").\n"+
 		"Nothing is changed if core.hooksPath is set or another post-commit hook exists.", stderr)
+	flagID := fs.String("repository-id", "", "UUID of this repository in the backend (required unless already saved)")
 	if code, ok := parseFlags(fs, args); !ok {
 		return code
 	}
@@ -30,6 +33,12 @@ func runInit(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err)
 	}
+	// Check the ID before changing anything.
+	id, err := repoid.Resolve(ctx, repo, *flagID)
+	if err != nil {
+		return fail(stderr, err)
+	}
+	saved, _ := repoid.Load(ctx, repo) // "" when not set (or not valid)
 
 	res, err := hooks.Install(ctx, repo, exe)
 	var conflict *hooks.ConflictError
@@ -42,6 +51,9 @@ func runInit(args []string, stdout, stderr io.Writer) int {
 			"To run commitcoach from your own hook, add this line to %s\n"+
 			"(create the file with \"#!/bin/sh\" as its first line and make it executable if it does not exist):\n\n    %s\n",
 			conflict.HookFile, conflict.Line)
+		if id != saved {
+			fmt.Fprintf(stderr, "\nand save the repository ID:\n\n    git config --local %s %s\n", repoid.ConfigKey, id)
+		}
 		return exitError
 	}
 	if err != nil {
@@ -58,6 +70,14 @@ func runInit(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stdout, "  runs:      %s hook post-commit\n", exe)
 	fmt.Fprintf(stdout, "  snapshots: %s\n", storage.EventsDir(repo.CommonDir))
+	if id != saved {
+		if err := repoid.Save(ctx, repo, id); err != nil {
+			return fail(stderr, fmt.Errorf("the hook is installed, but %w; run init again", err))
+		}
+		fmt.Fprintf(stdout, "  repository id: %s (saved as %s in the local git config)\n", id, repoid.ConfigKey)
+	} else {
+		fmt.Fprintf(stdout, "  repository id: %s\n", id)
+	}
 	if repo.GitDir != repo.CommonDir {
 		fmt.Fprintln(stdout, "  note:      hooks are shared by all worktrees of this repository")
 	}
@@ -123,6 +143,9 @@ func runUninstall(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "  %d snapshot(s) were kept in %s; delete that directory yourself if you no longer need them\n",
 			n, storage.EventsDir(repo.CommonDir))
 	}
+	if id, err := repoid.Load(ctx, repo); err == nil {
+		fmt.Fprintf(stdout, "  the repository ID (%s) was kept; remove it with: git config --local --unset %s\n", id, repoid.ConfigKey)
+	}
 	return exitOK
 }
 
@@ -157,6 +180,13 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 		out("common directory", "%s (linked worktree; hooks and snapshots are shared)", repo.CommonDir)
 	}
 	out("git", "%s", repo.GitVersion)
+	if id, err := repoid.Load(ctx, repo); err == nil {
+		out("repository id", "%s (%s, local git config)", id, repoid.ConfigKey)
+	} else if errors.Is(err, repoid.ErrNotSet) {
+		out("repository id", "not set (run \"commitcoach init --repository-id <UUID>\"; the hook fails without it)")
+	} else {
+		out("repository id", "INVALID: %v", err)
+	}
 
 	if len(st.HooksPath) > 0 {
 		out("hooks directory", "%s (set by core.hooksPath)", st.EffectiveHooksDir)

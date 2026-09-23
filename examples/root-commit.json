@@ -1,0 +1,12 @@
+{
+  "repository_id": "550e8400-e29b-41d4-a716-446655440000",
+  "commit_sha": "2ba044c45fd02057a7542ec9e84ca523596d4fbf",
+  "branch": "feature/cache",
+  "message": "Initial commit\n",
+  "files": [
+    "docs/notes.md",
+    "src/legacy.py",
+    "src/user_service.py"
+  ],
+  "diff": "diff --git a/docs/notes.md b/docs/notes.md\nnew file mode 100644\nindex 0000000..63d8dfd\n--- /dev/null\n+++ b/docs/notes.md\n@@ -0,0 +1,4 @@\n+# Notes\n+\n+- users are loaded from the repository\n+- nothing is cached yet\ndiff --git a/src/legacy.py b/src/legacy.py\nnew file mode 100644\nindex 0000000..274c900\n--- /dev/null\n+++ b/src/legacy.py\n@@ -0,0 +1,2 @@\n+def legacy_lookup(user_id):\n+    return None\ndiff --git a/src/user_service.py b/src/user_service.py\nnew file mode 100644\nindex 0000000..d7d4c98\n--- /dev/null\n+++ b/src/user_service.py\n@@ -0,0 +1,6 @@\n+class UserService:\n+    def __init__(self, repo):\n+        self.repo = repo\n+\n+    def get(self, user_id):\n+        return self.repo.find(user_id)\n"
+}

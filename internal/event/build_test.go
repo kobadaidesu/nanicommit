@@ -2,14 +2,13 @@ package event_test
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/kobadaidesu/hook-test/internal/event"
 	"github.com/kobadaidesu/hook-test/internal/gitrepo"
@@ -18,19 +17,17 @@ import (
 
 func TestMain(m *testing.M) { testutil.Main(m, nil) }
 
-var capturedAt = time.Date(2026, 9, 24, 10, 0, 0, 0, time.UTC)
+// testID is a made-up repository ID used by the tests.
+const testID = "3f1c2d4e-5a6b-4c7d-8e9f-0a1b2c3d4e5f"
 
+// build returns the internal snapshot of rev and checks its invariants.
 func build(t *testing.T, r *testutil.Repo, rev string, limits event.Limits) *event.Event {
 	t.Helper()
 	ev, err := buildErr(r, rev, limits)
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw, err := event.Marshal(ev)
-	if err != nil {
-		t.Fatal(err)
-	}
-	checkInvariants(t, rev, ev, raw) // every event built by the tests obeys the schema's rules
+	checkEvent(t, rev, ev)
 	return ev
 }
 
@@ -44,31 +41,33 @@ func buildErr(r *testutil.Repo, rev string, limits event.Limits) (*event.Event, 
 	if err != nil {
 		return nil, err
 	}
-	return event.Build(ctx, repo, oid, limits, capturedAt)
+	return event.Build(ctx, repo, oid, limits)
 }
 
-// roundTrip encodes ev and returns both the JSON text and a generic view.
-func roundTrip(t *testing.T, ev *event.Event) (string, map[string]any) {
+// publish returns the payload of rev with the default limits, its JSON text
+// (checked against the schema rules) and the notes.
+func publish(t *testing.T, r *testutil.Repo, rev string) (*event.Payload, string, []string) {
 	t.Helper()
-	data, err := event.Marshal(ev)
+	p, notes, err := event.NewPayload(testID, build(t, r, rev, event.DefaultLimits))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var m map[string]any
-	if err := json.Unmarshal(data, &m); err != nil {
-		t.Fatalf("invalid JSON: %v\n%s", err, data)
+	data, err := event.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
 	}
-	return string(data), m
+	checkPayload(t, rev, data)
+	return p, string(data), notes
 }
 
 func file(t *testing.T, ev *event.Event, path string) event.File {
 	t.Helper()
 	for _, f := range ev.Files {
-		if f.NewPath != nil && *f.NewPath == path || f.NewPath == nil && f.OldPath != nil && *f.OldPath == path {
+		if f.Path() == path {
 			return f
 		}
 	}
-	t.Fatalf("no file %q in event", path)
+	t.Fatalf("no file %q in the snapshot", path)
 	return event.File{}
 }
 
@@ -79,52 +78,55 @@ func TestRootCommit(t *testing.T) {
 	head := r.CommitAll("Initial commit")
 
 	ev := build(t, r, "HEAD", event.DefaultLimits)
-	text, m := roundTrip(t, ev)
-	if ev.SchemaVersion != "1.0" || ev.EventType != "commit.snapshot" || ev.CapturedAt != "2026-09-24T10:00:00Z" {
-		t.Errorf("header = %s %s %s", ev.SchemaVersion, ev.EventType, ev.CapturedAt)
+	if ev.Comparison.Strategy != "empty_tree" || ev.Comparison.BaseSHA != nil || ev.Commit.Parents == nil || len(ev.Commit.Parents) != 0 {
+		t.Errorf("comparison = %+v, parents = %#v", ev.Comparison, ev.Commit.Parents)
 	}
-	if ev.Commit.SHA != head || ev.Commit.Message != "Initial commit\n" || ev.Commit.AuthorName != "Test User" {
-		t.Errorf("commit = %+v", ev.Commit)
+	p, text, notes := publish(t, r, "HEAD")
+	if p.RepositoryID != testID || p.CommitSHA != head || p.Message != "Initial commit\n" || p.Branch == nil || *p.Branch != "main" {
+		t.Errorf("payload = %+v", p)
 	}
-	if ev.Comparison.Strategy != "empty_tree" || ev.Comparison.BaseSHA != nil {
-		t.Errorf("comparison = %+v", ev.Comparison)
+	if strings.Join(p.Files, ",") != "README.md,src/add.go" {
+		t.Errorf("files = %v", p.Files)
 	}
-	// Empty arrays are [] and missing values are null, never omitted.
-	if !strings.Contains(text, `"parents": []`) || !strings.Contains(text, `"warnings": []`) || !strings.Contains(text, `"base_sha": null`) {
-		t.Errorf("JSON:\n%s", text)
+	for _, want := range []string{"diff --git a/README.md b/README.md\nnew file mode 100644\n", "+# demo\n", "diff --git a/src/add.go b/src/add.go\n", "+package calc\n"} {
+		if !strings.Contains(p.Diff, want) {
+			t.Errorf("diff lacks %q:\n%s", want, text)
+		}
 	}
-	if m["repository"].(map[string]any)["current_branch"] != "main" {
-		t.Errorf("current_branch = %v", m["repository"])
-	}
-	f := file(t, ev, "src/add.go")
-	if f.Status != "A" || f.OldPath != nil || *f.Additions != 1 || *f.Deletions != 0 || !strings.Contains(*f.Patch, "+package calc\n") {
-		t.Errorf("file = %+v", f)
-	}
-	if ev.Summary != (event.Summary{ChangedFiles: 2, IncludedFiles: 2}) {
-		t.Errorf("summary = %+v", ev.Summary)
+	if len(notes) != 0 {
+		t.Errorf("notes = %v", notes)
 	}
 }
 
 func TestNormalCommitComparesWithFirstParent(t *testing.T) {
 	r := testutil.NewRepo(t)
 	r.Write("src/add.go", "package calc\n\nfunc add(a, b int) int {\n\treturn a - b\n}\n")
+	r.Write("src/old.go", "package calc\n")
 	parent := r.CommitAll("first")
 	r.Write("src/add.go", "package calc\n\nfunc add(a, b int) int {\n\treturn a + b\n}\n")
-	head := r.CommitAll("Fix addition")
+	r.Write("src/sub.go", "package calc\n\nfunc sub(a, b int) int { return a - b }\n")
+	r.Git("rm", "-q", "src/old.go")
+	head := r.CommitAll("Fix addition\n\nand add sub")
 
 	ev := build(t, r, "HEAD", event.DefaultLimits)
-	if ev.Commit.SHA != head || len(ev.Commit.Parents) != 1 || ev.Commit.Parents[0] != parent {
-		t.Errorf("commit = %+v", ev.Commit)
-	}
 	if ev.Comparison.Strategy != "first_parent" || *ev.Comparison.BaseSHA != parent {
 		t.Errorf("comparison = %+v", ev.Comparison)
 	}
-	f := file(t, ev, "src/add.go")
-	if f.Status != "M" || *f.OldPath != "src/add.go" || !strings.Contains(*f.Patch, "-\treturn a - b\n+\treturn a + b\n") {
-		t.Errorf("file = %+v", f)
+	p, _, _ := publish(t, r, "HEAD")
+	if p.CommitSHA != head || p.Message != "Fix addition\n\nand add sub\n" {
+		t.Errorf("payload = %+v", p)
 	}
-	if f.PatchTruncated || f.OmittedReason != nil || f.Binary {
-		t.Errorf("file flags = %+v", f)
+	// Changed, deleted (old path) and added files, in git's path order.
+	if strings.Join(p.Files, ",") != "src/add.go,src/old.go,src/sub.go" {
+		t.Errorf("files = %v", p.Files)
+	}
+	for _, want := range []string{"-\treturn a - b\n+\treturn a + b\n", "deleted file mode 100644\n", "-package calc\n", "+func sub(a, b int) int { return a - b }\n"} {
+		if !strings.Contains(p.Diff, want) {
+			t.Errorf("diff lacks %q:\n%s", want, p.Diff)
+		}
+	}
+	if countSections(p.Diff) != 3 {
+		t.Errorf("diff has %d sections, want 3", countSections(p.Diff))
 	}
 }
 
@@ -142,16 +144,18 @@ func TestPastCommitAndUncommittedChanges(t *testing.T) {
 	r.Write("untracked.txt", "UNTRACKED\n")
 
 	for rev, want := range map[string]string{"HEAD": "+committed v2", first: "+committed v1"} {
-		ev := build(t, r, rev, event.DefaultLimits)
-		text, _ := roundTrip(t, ev)
-		if len(ev.Files) != 1 || !strings.Contains(text, want) {
-			t.Errorf("%s: files = %d, JSON lacks %q", rev, len(ev.Files), want)
+		p, text, _ := publish(t, r, rev)
+		if len(p.Files) != 1 || p.Files[0] != "a.txt" || !strings.Contains(p.Diff, want) {
+			t.Errorf("%s: files = %v, diff lacks %q", rev, p.Files, want)
 		}
 		for _, leak := range []string{"UNSTAGED", "STAGED", "UNTRACKED", "staged.txt", "untracked.txt"} {
 			if strings.Contains(text, leak) {
-				t.Errorf("%s: uncommitted %q leaked into the event", rev, leak)
+				t.Errorf("%s: uncommitted %q leaked into the payload", rev, leak)
 			}
 		}
+	}
+	if p, _, _ := publish(t, r, first); p.CommitSHA != first {
+		t.Errorf("commit_sha = %s, want %s", p.CommitSHA, first)
 	}
 }
 
@@ -160,13 +164,13 @@ func TestDetachedHEADAndBranchAtCaptureTime(t *testing.T) {
 	first := r.CommitAll("one")
 	r.CommitAll("two")
 	r.Git("checkout", "-q", "--detach", first)
-	if ev := build(t, r, "HEAD", event.DefaultLimits); ev.Repository.CurrentBranch != nil {
-		t.Errorf("current_branch = %q, want null when detached", *ev.Repository.CurrentBranch)
+	if p, text, _ := publish(t, r, "HEAD"); p.Branch != nil || !strings.Contains(text, `"branch": null`) {
+		t.Errorf("branch = %v, want null when detached:\n%s", p.Branch, text)
 	}
-	r.Git("checkout", "-q", "-b", "other")
+	r.Git("checkout", "-q", "-b", "feature/cache")
 	// The branch is the one checked out now, even for an older commit.
-	if ev := build(t, r, "main", event.DefaultLimits); ev.Repository.CurrentBranch == nil || *ev.Repository.CurrentBranch != "other" {
-		t.Errorf("current_branch = %v, want other", ev.Repository.CurrentBranch)
+	if p, _, _ := publish(t, r, "main"); p.Branch == nil || *p.Branch != "feature/cache" {
+		t.Errorf("branch = %v, want feature/cache", p.Branch)
 	}
 }
 
@@ -190,11 +194,12 @@ func TestMergeCommitUsesFirstParent(t *testing.T) {
 		t.Errorf("comparison = %+v", ev.Comparison)
 	}
 	// Relative to the first parent only feature.txt changed.
-	if len(ev.Files) != 1 || *ev.Files[0].NewPath != "feature.txt" {
-		t.Errorf("files = %+v", ev.Files)
+	p, _, notes := publish(t, r, "HEAD")
+	if strings.Join(p.Files, ",") != "feature.txt" || strings.Contains(p.Diff, "main.txt") || p.Message != "Merge feature\n" {
+		t.Errorf("payload = %+v", p)
 	}
-	if len(ev.Warnings) != 1 || !strings.Contains(ev.Warnings[0], "first parent") {
-		t.Errorf("warnings = %v", ev.Warnings)
+	if len(notes) != 1 || !strings.Contains(notes[0], "first parent") {
+		t.Errorf("notes = %v", notes)
 	}
 }
 
@@ -210,10 +215,9 @@ func TestAmendedCommit(t *testing.T) {
 	if amended == draft {
 		t.Fatal("amend did not create a new commit")
 	}
-	ev := build(t, r, "HEAD", event.DefaultLimits)
-	text, _ := roundTrip(t, ev)
-	if ev.Commit.SHA != amended || ev.Commit.Message != "final\n" || !strings.Contains(text, "+final") || strings.Contains(text, "draft") {
-		t.Errorf("event of amended commit:\n%s", text)
+	p, text, _ := publish(t, r, "HEAD")
+	if p.CommitSHA != amended || p.Message != "final\n" || !strings.Contains(p.Diff, "+final") || strings.Contains(text, "draft") {
+		t.Errorf("payload of the amended commit:\n%s", text)
 	}
 }
 
@@ -222,10 +226,52 @@ func TestEmptyCommit(t *testing.T) {
 	r.Write("a.txt", "x\n")
 	r.CommitAll("first")
 	r.CommitAll("empty")
-	ev := build(t, r, "HEAD", event.DefaultLimits)
-	text, _ := roundTrip(t, ev)
-	if !strings.Contains(text, `"files": []`) || ev.Summary != (event.Summary{}) {
+	p, text, _ := publish(t, r, "HEAD")
+	if p.Files == nil || len(p.Files) != 0 || p.Diff != "" || !strings.Contains(text, `"files": []`) || !strings.Contains(text, `"diff": ""`) {
 		t.Errorf("empty commit:\n%s", text)
+	}
+}
+
+func TestUnusualNamesAndTypeChange(t *testing.T) {
+	r := testutil.NewRepo(t)
+	r.Write("typ", "regular\n")
+	r.Write("old name.txt", "1\n2\n3\n4\n5\n")
+	r.CommitAll("base")
+	os.Remove(filepath.Join(r.Dir, "typ"))
+	if err := os.Symlink("target", filepath.Join(r.Dir, "typ")); err != nil {
+		t.Fatal(err)
+	}
+	r.Git("mv", "old name.txt", "新しい 名前.txt")
+	names := []string{"日本語 と 空白.txt", "-dash.txt"}
+	if runtime.GOOS != "windows" {
+		names = append(names, "tab\tname.txt", "new\nline.txt")
+	}
+	for _, n := range names {
+		r.Write(n, "content of "+n+"\n")
+	}
+	r.CommitAll("names")
+
+	p, _, _ := publish(t, r, "HEAD")
+	want := append([]string{"typ", "新しい 名前.txt"}, names...)
+	got := map[string]bool{}
+	for _, f := range p.Files {
+		got[f] = true
+	}
+	if len(p.Files) != len(want) {
+		t.Errorf("files = %q, want %q", p.Files, want)
+	}
+	for _, w := range want {
+		if !got[w] {
+			t.Errorf("files lack %q: %q", w, p.Files)
+		}
+	}
+	// One section per file, plus one more for the type change (git prints
+	// it as a deletion and a creation). The rename appears once.
+	if n := countSections(p.Diff); n != len(want)+1 {
+		t.Errorf("diff has %d sections, want %d:\n%s", n, len(want)+1, p.Diff)
+	}
+	if strings.Count(p.Diff, "rename from old name.txt\n") != 1 {
+		t.Errorf("rename appears %d times", strings.Count(p.Diff, "rename from old name.txt\n"))
 	}
 }
 
@@ -240,38 +286,43 @@ func TestBinaryAndSensitiveFiles(t *testing.T) {
 	r.Write("id_ed25519", "SECRET_SSH\n")
 	r.Write("id_ed25519.pub", "ssh-ed25519 PUBLIC\n")
 	r.Write("logo.png", "\x89PNG\x00\x00binary")
+	r.Write("app.go", "package app\n")
 	// Renames are checked on both sides.
 	r.Git("mv", "settings.ini", ".env.local")
-	r.Git("mv", "config.txt", "harmless.txt")
-	r.Git("mv", "harmless.txt", "..tmp") // keep a non-sensitive rename too
+	r.Git("mv", "config.txt", "..tmp") // a rename that is not sensitive
 	r.CommitAll("secrets")
 
 	ev := build(t, r, "HEAD", event.DefaultLimits)
-	text, _ := roundTrip(t, ev)
-	for _, secret := range []string{"SECRET_ENV_VALUE", "SECRET_PROD", "SECRET_PEM", "SECRET_SSH", "SECRET_IN_RENAMED_TARGET"} {
-		if strings.Contains(text, secret) {
-			t.Errorf("%s leaked into the event", secret)
+	sensitive := []string{".env", "deploy/.env.production", "keys/server.PEM", "id_ed25519", ".env.local"}
+	for _, path := range sensitive {
+		if f := file(t, ev, path); f.Patch != nil || *f.OmittedReason != "sensitive_path" {
+			t.Errorf("%s: %+v", path, f)
 		}
 	}
-	for _, p := range []string{".env", "deploy/.env.production", "keys/server.PEM", "id_ed25519", ".env.local"} {
-		f := file(t, ev, p)
-		if f.Patch != nil || f.OmittedReason == nil || *f.OmittedReason != "sensitive_path" || f.Additions == nil {
-			t.Errorf("%s: %+v", p, f)
-		}
-	}
-	if f := file(t, ev, "id_ed25519.pub"); f.Patch == nil {
-		t.Errorf("public key should keep its patch")
-	}
-	png := file(t, ev, "logo.png")
-	if !png.Binary || png.Patch != nil || png.Additions != nil || png.Deletions != nil || *png.OmittedReason != "binary" {
+	if png := file(t, ev, "logo.png"); !png.Binary || png.Patch != nil || *png.OmittedReason != "binary" {
 		t.Errorf("logo.png: %+v", png)
 	}
-	if ev.Summary.Truncated {
-		t.Error("binary and sensitive omissions are not truncation")
+
+	p, text, notes := publish(t, r, "HEAD")
+	for _, secret := range []string{"SECRET_ENV_VALUE", "SECRET_PROD", "SECRET_PEM", "SECRET_SSH", "SECRET_IN_RENAMED_TARGET"} {
+		if strings.Contains(text, secret) || strings.Contains(strings.Join(notes, "\n"), secret) {
+			t.Errorf("%s leaked", secret)
+		}
 	}
-	renamed := file(t, ev, ".env.local")
-	if renamed.Status != "R" || *renamed.OldPath != "settings.ini" {
-		t.Errorf("rename into .env.local: %+v", renamed)
+	// Left-out files are missing from files and diff alike.
+	if strings.Join(p.Files, ",") != "..tmp,app.go,id_ed25519.pub" {
+		t.Errorf("files = %v", p.Files)
+	}
+	for _, path := range append(sensitive, "logo.png", "settings.ini") {
+		if strings.Contains(p.Diff, path+"\n") || strings.Contains(p.Diff, "b/"+path+" ") || strings.Contains(p.Diff, "a/"+path+" ") {
+			t.Errorf("diff mentions %s", path)
+		}
+	}
+	joined := strings.Join(notes, "\n")
+	for _, want := range []string{"left out .env:", "left out settings.ini -> .env.local:", "left out logo.png: binary file"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("notes lack %q:\n%s", want, joined)
+		}
 	}
 }
 
@@ -280,56 +331,78 @@ func TestRenameFromSensitivePath(t *testing.T) {
 	r.Write(".env", "PASSWORD=SECRET_OLD_SIDE\nA=1\nB=2\n")
 	r.CommitAll("base")
 	r.Git("mv", ".env", "defaults.txt")
+	r.Write("defaults.txt", "PASSWORD=SECRET_OLD_SIDE\nA=1\nB=3\n")
 	r.CommitAll("rename")
-	ev := build(t, r, "HEAD", event.DefaultLimits)
-	text, _ := roundTrip(t, ev)
-	f := file(t, ev, "defaults.txt")
-	if f.Status != "R" || f.Patch != nil || *f.OmittedReason != "sensitive_path" || strings.Contains(text, "SECRET_OLD_SIDE") {
+	if f := file(t, build(t, r, "HEAD", event.DefaultLimits), "defaults.txt"); f.Status != "R" || *f.OmittedReason != "sensitive_path" {
 		t.Errorf("rename from .env: %+v", f)
+	}
+	p, text, notes := publish(t, r, "HEAD")
+	if len(p.Files) != 0 || p.Diff != "" || strings.Contains(text, "SECRET_OLD_SIDE") {
+		t.Errorf("payload:\n%s", text)
+	}
+	if len(notes) != 1 || !strings.Contains(notes[0], "left out .env -> defaults.txt") {
+		t.Errorf("notes = %v", notes)
 	}
 }
 
-func TestDefaultLimits(t *testing.T) {
+func TestLimitsStopThePayload(t *testing.T) {
 	r := testutil.NewRepo(t)
-	for i := 0; i < 101; i++ {
+	for i := 0; i < 100; i++ {
 		r.Write(fmt.Sprintf("many/f%03d.txt", i), "x\n")
 	}
-	r.CommitAll("101 files")
-	ev := build(t, r, "HEAD", event.DefaultLimits)
-	if ev.Summary != (event.Summary{ChangedFiles: 101, IncludedFiles: 100, OmittedFiles: 1, Truncated: true}) || len(ev.Files) != 100 {
-		t.Errorf("summary = %+v, files = %d", ev.Summary, len(ev.Files))
-	}
-	if *ev.Files[99].NewPath != "many/f099.txt" {
-		t.Errorf("files are not in path order: last = %s", *ev.Files[99].NewPath)
+	r.CommitAll("100 files")
+	if p, _, _ := publish(t, r, "HEAD"); len(p.Files) != 100 {
+		t.Fatalf("100 files: got %d", len(p.Files))
 	}
 
-	// Nine files of ~70 KiB: each is cut at 64 KiB, and the 512 KiB total
-	// runs out at the ninth.
+	for i := 0; i < 101; i++ {
+		r.Write(fmt.Sprintf("more/f%03d.txt", i), "x\n")
+	}
+	r.CommitAll("101 files")
+	checkLimitError(t, r, "the commit changes 101 files, more than the limit of 100")
+
+	// One file above 64 KiB.
 	line := strings.Repeat("0123456789", 7) + "\n"
+	r.Write("big/one.txt", strings.Repeat(line, 1000)) // ~71 KiB of patch
+	r.CommitAll("big file")
+	checkLimitError(t, r, "the diff of big/one.txt is larger than 65536 bytes")
+
+	// Nine files below 64 KiB each, above 512 KiB together.
 	for i := 0; i < 9; i++ {
-		r.Write(fmt.Sprintf("big/%d.txt", i), strings.Repeat(line, 1000))
+		r.Write(fmt.Sprintf("big/part%d.txt", i), strings.Repeat(line, 850)) // ~60 KiB each
 	}
-	r.CommitAll("big files")
-	ev = build(t, r, "HEAD", event.DefaultLimits)
-	total := 0
-	for i, f := range ev.Files {
-		switch {
-		case i < 8:
-			if !f.PatchTruncated || len(*f.Patch) != 64<<10 {
-				t.Errorf("file %d: truncated=%v len=%d", i, f.PatchTruncated, len(*f.Patch))
-			}
-			total += len(*f.Patch)
-		default:
-			if f.Patch != nil || *f.OmittedReason != "total_patch_limit" || *f.Additions != 1000 {
-				t.Errorf("file %d: %+v", i, f)
-			}
-		}
+	r.CommitAll("big total")
+	checkLimitError(t, r, "larger than 524288 bytes in total")
+}
+
+func checkLimitError(t *testing.T, r *testutil.Repo, want string) {
+	t.Helper()
+	ev := build(t, r, "HEAD", event.DefaultLimits)
+	if !ev.Summary.Truncated {
+		t.Errorf("snapshot not marked truncated: %+v", ev.Summary)
 	}
-	if total != 512<<10 || !ev.Summary.Truncated || ev.Summary.OmittedFiles != 0 {
-		t.Errorf("total = %d, summary = %+v", total, ev.Summary)
+	p, notes, err := event.NewPayload(testID, ev)
+	if !errors.Is(err, event.ErrLimitExceeded) || !strings.Contains(err.Error(), want) || p != nil || notes != nil {
+		t.Errorf("NewPayload = %v, %v, %v; want an error containing %q", p, notes, err, want)
 	}
-	if len(ev.Warnings) != 2 {
-		t.Errorf("warnings = %v", ev.Warnings)
+}
+
+func TestNewPayloadDeduplicatesFiles(t *testing.T) {
+	a, b := "a.txt", "b.txt"
+	pa, pb := "diff --git a/a.txt b/a.txt\n+1\n", "diff --git a/b.txt b/b.txt\n+2\n"
+	ev := &event.Event{
+		Commit: event.Commit{SHA: "abc", Parents: []string{}, Message: "m\n"},
+		Files: []event.File{
+			{Status: "M", OldPath: &a, NewPath: &a, Patch: &pa},
+			{Status: "M", OldPath: &b, NewPath: &b, Patch: &pb},
+			{Status: "T", OldPath: &a, NewPath: &a, Patch: &pa},
+		},
+		Summary: event.Summary{ChangedFiles: 3, IncludedFiles: 3},
+		Limits:  event.DefaultLimits,
+	}
+	p, _, err := event.NewPayload(testID, ev)
+	if err != nil || strings.Join(p.Files, ",") != "a.txt,b.txt" || p.Diff != pa+pb+pa {
+		t.Fatalf("payload = %+v, %v", p, err)
 	}
 }
 
@@ -340,13 +413,13 @@ func TestInvalidUTF8PathIsReported(t *testing.T) {
 	r := testutil.NewRepo(t)
 	r.Write("bad-\xff.txt", "x\n")
 	r.CommitAll("bad name")
-	ev := build(t, r, "HEAD", event.DefaultLimits)
-	if *ev.Files[0].NewPath != "bad-\uFFFD.txt" {
-		t.Errorf("new_path = %q", *ev.Files[0].NewPath)
+	p, _, notes := publish(t, r, "HEAD")
+	if p.Files[0] != "bad-\uFFFD.txt" {
+		t.Errorf("files = %q", p.Files)
 	}
-	joined := strings.Join(ev.Warnings, "\n")
-	if !strings.Contains(joined, "files[0].new_path is not valid UTF-8") || !strings.Contains(joined, "files[0].patch") {
-		t.Errorf("warnings = %v", ev.Warnings)
+	joined := strings.Join(notes, "\n")
+	if !strings.Contains(joined, `the path "bad-\xff.txt" is not valid UTF-8`) || !strings.Contains(joined, `the diff of "bad-\xff.txt"`) {
+		t.Errorf("notes = %v", notes)
 	}
 }
 
@@ -365,30 +438,15 @@ func TestShallowBoundaryIsNotTreatedAsRoot(t *testing.T) {
 	}
 }
 
-func TestDatesAreRFC3339(t *testing.T) {
-	r := testutil.NewRepo(t)
-	r.Env = append(os.Environ(), "GIT_AUTHOR_DATE=2026-09-24T18:59:00+09:00", "GIT_COMMITTER_DATE=2026-09-24T10:00:00Z")
-	r.CommitAll("dated")
-	ev := build(t, r, "HEAD", event.DefaultLimits)
-	for _, s := range []string{ev.Commit.AuthoredAt, ev.Commit.CommittedAt, ev.CapturedAt} {
-		if _, err := time.Parse(time.RFC3339, s); err != nil {
-			t.Errorf("%q is not RFC 3339", s)
-		}
-	}
-	if ev.Commit.AuthoredAt != "2026-09-24T18:59:00+09:00" || ev.Commit.CommittedAt != "2026-09-24T10:00:00Z" {
-		t.Errorf("dates = %s, %s", ev.Commit.AuthoredAt, ev.Commit.CommittedAt)
-	}
-}
-
 func TestNoAbsolutePathsOrEmails(t *testing.T) {
 	r := testutil.NewRepo(t)
 	r.Git("remote", "add", "origin", "https://user:token@example.com/repo.git")
 	r.Write("a.txt", "x\n")
 	r.CommitAll("first")
-	text, _ := roundTrip(t, build(t, r, "HEAD", event.DefaultLimits))
-	for _, s := range []string{r.Dir, "test@example.com", "example.com", "token"} {
+	_, text, _ := publish(t, r, "HEAD")
+	for _, s := range []string{r.Dir, "test@example.com", "example.com", "token", "Test User"} {
 		if strings.Contains(text, s) {
-			t.Errorf("event contains %q:\n%s", s, text)
+			t.Errorf("payload contains %q:\n%s", s, text)
 		}
 	}
 }

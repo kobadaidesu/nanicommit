@@ -13,7 +13,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -23,6 +25,12 @@ import (
 )
 
 var binPath string
+
+// Made-up repository IDs for the tests.
+const (
+	testID  = "3f1c2d4e-5a6b-4c7d-8e9f-0a1b2c3d4e5f"
+	otherID = "9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d"
+)
 
 func TestMain(m *testing.M) { testutil.Main(m, buildBinary) }
 
@@ -91,44 +99,62 @@ func eventPath(r *testutil.Repo, oid string) string {
 	return filepath.Join(r.Dir, ".git", "commitcoach", "events", oid+".json")
 }
 
-// decodeEvent parses exactly one JSON object with no unknown fields.
-func decodeEvent(t *testing.T, data []byte) *event.Event {
+var payloadKeys = []string{"branch", "commit_sha", "diff", "files", "message", "repository_id"}
+
+// decodePayload parses exactly one JSON object that has exactly the six
+// payload keys.
+func decodePayload(t *testing.T, data []byte) *event.Payload {
 	t.Helper()
+	var generic map[string]any
+	if err := json.Unmarshal(data, &generic); err != nil {
+		t.Fatalf("not a JSON object: %v\n%s", err, data)
+	}
+	var keys []string
+	for k := range generic {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	if !reflect.DeepEqual(keys, payloadKeys) {
+		t.Fatalf("top-level keys %v, want exactly %v", keys, payloadKeys)
+	}
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
-	var ev event.Event
-	if err := dec.Decode(&ev); err != nil {
-		t.Fatalf("invalid snapshot JSON: %v\n%s", err, data)
+	var p event.Payload
+	if err := dec.Decode(&p); err != nil {
+		t.Fatalf("invalid payload: %v\n%s", err, data)
 	}
 	if _, err := dec.Token(); err != io.EOF {
 		t.Fatalf("more than one JSON value in output:\n%s", data)
 	}
-	return &ev
+	if p.Files == nil {
+		t.Fatalf("files is null:\n%s", data)
+	}
+	return &p
 }
 
-func readEvent(t *testing.T, r *testutil.Repo, oid string) *event.Event {
+func readPayload(t *testing.T, r *testutil.Repo, oid string) *event.Payload {
 	t.Helper()
 	data, err := os.ReadFile(eventPath(r, oid))
 	if err != nil {
-		t.Fatalf("snapshot of %s not saved: %v", oid, err)
+		t.Fatalf("JSON of %s not saved: %v", oid, err)
 	}
-	return decodeEvent(t, data)
+	return decodePayload(t, data)
 }
 
 func installed(t *testing.T) *testutil.Repo {
 	t.Helper()
 	r := testutil.NewRepo(t)
-	if res := cc(t, r, "", "init"); res.code != 0 {
+	if res := cc(t, r, "", "init", "--repository-id", testID); res.code != 0 {
 		t.Fatalf("init failed: %+v", res)
 	}
 	return r
 }
 
-func TestInitAndCommitRecordSnapshots(t *testing.T) {
+func TestInitAndCommitRecordPayloads(t *testing.T) {
 	r := testutil.NewRepo(t)
 	os.MkdirAll(filepath.Join(r.Dir, "sub", "dir"), 0o755)
-	res := cc(t, r, filepath.Join(r.Dir, "sub", "dir"), "init") // from a subdirectory
-	if res.code != 0 || !strings.Contains(res.stdout, "installed the post-commit hook") {
+	res := cc(t, r, filepath.Join(r.Dir, "sub", "dir"), "init", "--repository-id", testID) // from a subdirectory
+	if res.code != 0 || !strings.Contains(res.stdout, "installed the post-commit hook") || !strings.Contains(res.stdout, "repository id: "+testID) {
 		t.Fatalf("init: %+v", res)
 	}
 	hook, _ := os.ReadFile(filepath.Join(r.Dir, ".git", "hooks", "post-commit"))
@@ -143,28 +169,33 @@ func TestInitAndCommitRecordSnapshots(t *testing.T) {
 	if !strings.Contains(stderr, "commitcoach: recorded the snapshot of "+first) {
 		t.Errorf("hook message missing: %q", stderr)
 	}
-	ev := readEvent(t, r, first)
-	if ev.Commit.SHA != first || ev.Comparison.Strategy != "empty_tree" || ev.Comparison.BaseSHA != nil {
-		t.Errorf("first snapshot: %+v %+v", ev.Commit, ev.Comparison)
-	}
-	if len(ev.Files) != 1 || *ev.Files[0].NewPath != "src/add.go" || ev.Files[0].Status != "A" {
-		t.Errorf("files = %+v", ev.Files)
+	p := readPayload(t, r, first)
+	if p.RepositoryID != testID || p.CommitSHA != first || p.Branch == nil || *p.Branch != "main" || p.Message != "Initial commit\n" ||
+		strings.Join(p.Files, ",") != "src/add.go" || !strings.HasPrefix(p.Diff, "diff --git a/src/add.go b/src/add.go\nnew file mode 100644\n") {
+		t.Errorf("first payload: %+v", p)
 	}
 
+	// A commit with several files.
 	r.Write("src/add.go", "package calc\n\nfunc add(a, b int) int {\n\treturn a + b\n}\n")
-	commit(t, r, "-a", "-m", "Fix addition")
+	r.Write("src/sub.go", "package calc\n\nfunc sub(a, b int) int {\n\treturn a - b\n}\n")
+	r.Write("docs/メモ 1.md", "# メモ\n")
+	r.Git("add", "-A")
+	commit(t, r, "-m", "足し算を修正\n\n- sub を追加\n- メモを追加")
 	second := r.Head()
-	ev = readEvent(t, r, second)
-	f := ev.Files[0]
-	if ev.Commit.SHA != second || *ev.Comparison.BaseSHA != first || ev.Commit.Message != "Fix addition\n" {
-		t.Errorf("second snapshot: %+v %+v", ev.Commit, ev.Comparison)
+	p = readPayload(t, r, second)
+	if p.CommitSHA != second || p.Message != "足し算を修正\n\n- sub を追加\n- メモを追加\n" {
+		t.Errorf("second payload: %+v", p)
 	}
-	if f.Status != "M" || *f.OldPath != "src/add.go" || *f.NewPath != "src/add.go" || *f.Additions != 1 || *f.Deletions != 1 ||
-		!strings.Contains(*f.Patch, "-\treturn a - b\n+\treturn a + b\n") {
-		t.Errorf("file = %+v", f)
+	if strings.Join(p.Files, "|") != "docs/メモ 1.md|src/add.go|src/sub.go" {
+		t.Errorf("files = %q", p.Files)
+	}
+	for _, want := range []string{"diff --git a/docs/メモ 1.md b/docs/メモ 1.md\n", "+# メモ\n", "-\treturn a - b\n+\treturn a + b\n", "diff --git a/src/sub.go b/src/sub.go\nnew file mode"} {
+		if !strings.Contains(p.Diff, want) {
+			t.Errorf("diff lacks %q:\n%s", want, p.Diff)
+		}
 	}
 	if fi, err := os.Stat(eventPath(r, second)); err != nil || fi.Mode().Perm() != 0o600 {
-		t.Errorf("snapshot mode: %v %v", fi.Mode().Perm(), err)
+		t.Errorf("JSON file mode: %v %v", fi.Mode().Perm(), err)
 	}
 	if fi, err := os.Stat(filepath.Dir(eventPath(r, second))); err != nil || fi.Mode().Perm() != 0o700 {
 		t.Errorf("events dir mode: %v %v", fi.Mode().Perm(), err)
@@ -197,13 +228,13 @@ func TestHookIgnoresUncommittedChanges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ev := decodeEvent(t, data)
-	if len(ev.Files) != 1 || *ev.Files[0].NewPath != "a.txt" || !strings.Contains(*ev.Files[0].Patch, "+a COMMITTED") {
-		t.Errorf("files = %+v", ev.Files)
+	p := decodePayload(t, data)
+	if strings.Join(p.Files, ",") != "a.txt" || !strings.Contains(p.Diff, "+a COMMITTED") {
+		t.Errorf("payload = %+v", p)
 	}
 	for _, leak := range []string{"STAGED_NOT_COMMITTED", "UNSTAGED_NOT_COMMITTED", "UNTRACKED_FILE", "b.txt", "c.txt", "d.txt"} {
 		if bytes.Contains(data, []byte(leak)) {
-			t.Errorf("%s leaked into the snapshot", leak)
+			t.Errorf("%s leaked into the JSON", leak)
 		}
 	}
 	if out := r.Git("diff", "--cached", "--name-only"); out != "b.txt\n" {
@@ -220,37 +251,35 @@ func TestExport(t *testing.T) {
 	r.Write("a.txt", "two\n")
 	commit(t, r, "-a", "-m", "two")
 	head := r.Head()
+	r.Write("a.txt", "UNCOMMITTED\n")
 
 	res := cc(t, r, "", "export")
 	if res.code != 0 || res.stderr != "" {
 		t.Fatalf("export: code %d stderr %q", res.code, res.stderr)
 	}
-	ev := decodeEvent(t, []byte(res.stdout)) // stdout is exactly one JSON value
-	if ev.Commit.SHA != head {
-		t.Errorf("sha = %s", ev.Commit.SHA)
+	p := decodePayload(t, []byte(res.stdout)) // stdout is exactly one JSON value
+	if p.CommitSHA != head || p.RepositoryID != testID || strings.Contains(res.stdout, "UNCOMMITTED") {
+		t.Errorf("payload = %+v", p)
 	}
 
-	// export and the hook produce the same document (except captured_at).
-	hookEv := readEvent(t, r, head)
-	hookEv.CapturedAt, ev.CapturedAt = "", ""
-	a, _ := json.Marshal(hookEv)
-	b, _ := json.Marshal(ev)
-	if !bytes.Equal(a, b) {
-		t.Errorf("export differs from the hook snapshot:\n%s\n%s", a, b)
+	// export and the hook produce the same bytes for the same commit.
+	hookJSON, _ := os.ReadFile(eventPath(r, head))
+	if string(hookJSON) != res.stdout {
+		t.Errorf("export differs from the hook output:\n%s\n%s", hookJSON, res.stdout)
 	}
 
-	res = cc(t, r, "", "export", "--commit", first, "--output", "-")
-	if ev := decodeEvent(t, []byte(res.stdout)); res.code != 0 || ev.Commit.SHA != first || ev.Comparison.Strategy != "empty_tree" {
+	res = cc(t, r, "", "export", "--commit", first[:12], "--output", "-")
+	if p := decodePayload(t, []byte(res.stdout)); res.code != 0 || p.CommitSHA != first || !strings.Contains(p.Diff, "new file mode") {
 		t.Errorf("export of the first commit: %+v", res)
 	}
 
-	res = cc(t, r, "", "export", "--commit", "HEAD~1", "--output", "./event.json")
-	out := filepath.Join(r.Dir, "event.json")
+	res = cc(t, r, "", "export", "--commit", "HEAD~1", "--output", "./payload.json")
+	out := filepath.Join(r.Dir, "payload.json")
 	data, err := os.ReadFile(out)
 	if res.code != 0 || res.stdout != "" || err != nil || !strings.Contains(res.stderr, "wrote the snapshot") {
 		t.Fatalf("export to file: %+v, %v", res, err)
 	}
-	if decodeEvent(t, data).Commit.SHA != first {
+	if decodePayload(t, data).CommitSHA != first {
 		t.Error("wrong commit in file")
 	}
 	if fi, _ := os.Stat(out); fi.Mode().Perm() != 0o600 {
@@ -258,22 +287,206 @@ func TestExport(t *testing.T) {
 	}
 }
 
+func TestRepositoryID(t *testing.T) {
+	r := testutil.NewRepo(t)
+	r.Write("a.txt", "x\n")
+	r.CommitAll("one")
+	cfg := filepath.Join(r.Dir, ".git", "config")
+	hookPath := filepath.Join(r.Dir, ".git", "hooks", "post-commit")
+
+	// Neither a flag nor a saved ID: an error that says how to set one.
+	for _, args := range [][]string{{"export"}, {"init"}} {
+		res := cc(t, r, "", args...)
+		if res.code != 1 || res.stdout != "" || !strings.Contains(res.stderr, "repository_id is not set") || !strings.Contains(res.stderr, "--repository-id") {
+			t.Errorf("%v without an ID: %+v", args, res)
+		}
+	}
+	if _, err := os.Lstat(hookPath); !os.IsNotExist(err) {
+		t.Error("init installed the hook without an ID")
+	}
+	// Invalid IDs are refused.
+	for _, bad := range []string{"", "abc", "00000000-0000-0000-0000-000000000000", testID + "0"} {
+		res := cc(t, r, "", "export", "--repository-id="+bad)
+		if res.code != 1 || res.stdout != "" {
+			t.Errorf("export --repository-id=%q: %+v", bad, res)
+		}
+	}
+	if res := cc(t, r, "", "init", "--repository-id", "not-a-uuid"); res.code != 1 || !strings.Contains(res.stderr, "not a UUID") {
+		t.Errorf("init with an invalid ID: %+v", res)
+	}
+	if _, err := os.Lstat(hookPath); !os.IsNotExist(err) {
+		t.Error("init installed the hook with an invalid ID")
+	}
+
+	// A flag works without saving anything.
+	before, _ := os.ReadFile(cfg)
+	res := cc(t, r, "", "export", "--repository-id", strings.ToUpper(testID))
+	if p := decodePayload(t, []byte(res.stdout)); res.code != 0 || p.RepositoryID != testID {
+		t.Errorf("export with a flag: %+v", res)
+	}
+	if after, _ := os.ReadFile(cfg); !bytes.Equal(before, after) {
+		t.Error("export --repository-id changed the saved config")
+	}
+
+	// init saves the ID in the local config only.
+	global := testutil.GlobalConfig()
+	globalBefore, _ := os.ReadFile(global)
+	if res := cc(t, r, "", "init", "--repository-id", testID); res.code != 0 || !strings.Contains(res.stdout, "saved as commitcoach.repositoryId") {
+		t.Fatalf("init: %+v", res)
+	}
+	if got := strings.TrimSpace(r.Git("config", "--local", "--get", "commitcoach.repositoryId")); got != testID {
+		t.Errorf("local config = %q", got)
+	}
+	if after, _ := os.ReadFile(global); !bytes.Equal(globalBefore, after) {
+		t.Error("the global config was changed")
+	}
+	if res := cc(t, r, "", "status"); !strings.Contains(res.stdout, "repository id:     "+testID) {
+		t.Errorf("status:\n%s", res.stdout)
+	}
+
+	// The saved ID is used; a flag overrides it for one run without saving.
+	if p := decodePayload(t, []byte(cc(t, r, "", "export").stdout)); p.RepositoryID != testID {
+		t.Errorf("saved ID not used: %s", p.RepositoryID)
+	}
+	before, _ = os.ReadFile(cfg)
+	if p := decodePayload(t, []byte(cc(t, r, "", "export", "--repository-id", otherID).stdout)); p.RepositoryID != otherID {
+		t.Errorf("flag did not override: %s", p.RepositoryID)
+	}
+	if after, _ := os.ReadFile(cfg); !bytes.Equal(before, after) {
+		t.Error("export --repository-id changed the saved config")
+	}
+
+	// init again: without a flag it keeps the ID, with one it replaces it.
+	if res := cc(t, r, "", "init"); res.code != 0 || !strings.Contains(res.stdout, "repository id: "+testID) {
+		t.Errorf("init without a flag: %+v", res)
+	}
+	if res := cc(t, r, "", "init", "--repository-id", otherID); res.code != 0 {
+		t.Errorf("init with a new ID: %+v", res)
+	}
+	if got := r.Git("config", "--local", "--get-all", "commitcoach.repositoryId"); got != otherID+"\n" {
+		t.Errorf("local config after the change = %q", got)
+	}
+	r.Write("a.txt", "y\n")
+	commit(t, r, "-a", "-m", "two")
+	if p := readPayload(t, r, r.Head()); p.RepositoryID != otherID {
+		t.Errorf("hook used %s", p.RepositoryID)
+	}
+}
+
+func TestHookWithoutRepositoryIDKeepsCommit(t *testing.T) {
+	r := installed(t)
+	r.Git("config", "--local", "--unset", "commitcoach.repositoryId")
+	r.Write("a.txt", "x\n")
+	r.Git("add", "-A")
+	stderr := commit(t, r, "-m", "no id")
+	if !strings.Contains(stderr, "the commit was created, but its snapshot could not be recorded: repository_id is not set") || !strings.Contains(stderr, "warning") {
+		t.Errorf("stderr = %q", stderr)
+	}
+	if strings.TrimSpace(r.Git("log", "-1", "--format=%s")) != "no id" {
+		t.Error("commit missing")
+	}
+	if _, err := os.Stat(eventPath(r, r.Head())); !os.IsNotExist(err) {
+		t.Error("JSON saved without an ID")
+	}
+}
+
+func TestSensitiveAndBinaryFilesAreLeftOut(t *testing.T) {
+	r := installed(t)
+	r.Write(".env", "API_KEY=SECRET_ENV_VALUE\n")
+	r.Write("keys/deploy.pem", "SECRET_PEM_VALUE\n")
+	r.Write("logo.png", "\x89PNG\x00\x00binary")
+	r.Write("app.py", "print('hello')\n")
+	r.Git("add", "-A")
+	stderr := commit(t, r, "-m", "secrets")
+	head := r.Head()
+	data, _ := os.ReadFile(eventPath(r, head))
+	p := decodePayload(t, data)
+	if strings.Join(p.Files, ",") != "app.py" || strings.Contains(p.Diff, ".env") || strings.Contains(p.Diff, "logo.png") {
+		t.Errorf("payload = %+v", p)
+	}
+	for _, secret := range []string{"SECRET_ENV_VALUE", "SECRET_PEM_VALUE"} {
+		if bytes.Contains(data, []byte(secret)) || strings.Contains(stderr, secret) {
+			t.Errorf("%s leaked", secret)
+		}
+	}
+	for _, want := range []string{"note: left out .env: the path looks like it holds secrets", "note: left out keys/deploy.pem:", "note: left out logo.png: binary file"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("hook stderr lacks %q:\n%s", want, stderr)
+		}
+	}
+	res := cc(t, r, "", "export")
+	if res.code != 0 || res.stdout != string(data) || !strings.Contains(res.stderr, "left out .env") {
+		t.Errorf("export: %+v", res)
+	}
+}
+
+func TestLimitsProduceNoJSON(t *testing.T) {
+	r := installed(t)
+	r.Write("a.txt", "x\n")
+	r.Git("add", "-A")
+	commit(t, r, "-m", "base")
+	good := filepath.Join(r.Dir, "payload.json")
+	if res := cc(t, r, "", "export", "--output", good); res.code != 0 {
+		t.Fatal(res)
+	}
+	goodJSON, _ := os.ReadFile(good)
+
+	for name, prepare := range map[string]func(){
+		"101 files": func() {
+			for i := 0; i < 101; i++ {
+				r.Write(fmt.Sprintf("many/%03d.txt", i), "x\n")
+			}
+		},
+		"large file": func() {
+			r.Write("big.txt", strings.Repeat(strings.Repeat("0123456789", 7)+"\n", 1000)) // ~71 KiB
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			prepare()
+			r.Git("add", "-A")
+			stderr := commit(t, r, "-m", name) // the hook fails, the commit stays
+			head := r.Head()
+			if !strings.Contains(stderr, "limit exceeded") || !strings.Contains(stderr, "no JSON was written") || !strings.Contains(stderr, "warning") {
+				t.Errorf("hook stderr = %q", stderr)
+			}
+			if _, err := os.Stat(eventPath(r, head)); !os.IsNotExist(err) {
+				t.Error("the hook saved JSON over the limit")
+			}
+			res := cc(t, r, "", "export")
+			if res.code != 1 || res.stdout != "" || !strings.Contains(res.stderr, "limit exceeded") {
+				t.Errorf("export: %+v", res)
+			}
+			// A failed export leaves an existing output file as it was.
+			res = cc(t, r, "", "export", "--output", good)
+			if after, _ := os.ReadFile(good); res.code != 1 || !bytes.Equal(after, goodJSON) {
+				t.Errorf("export --output over the limit: %+v", res)
+			}
+			entries, _ := os.ReadDir(r.Dir)
+			for _, e := range entries {
+				if strings.HasPrefix(e.Name(), ".payload.json.tmp") {
+					t.Errorf("temporary file left behind: %s", e.Name())
+				}
+			}
+		})
+	}
+}
+
 func TestExportErrors(t *testing.T) {
 	r := testutil.NewRepo(t)
-	if res := cc(t, r, "", "export"); res.code != 1 || res.stdout != "" || !strings.Contains(res.stderr, "does not name a commit") {
+	if res := cc(t, r, "", "export", "--repository-id", testID); res.code != 1 || res.stdout != "" || !strings.Contains(res.stderr, "does not name a commit") {
 		t.Errorf("export in an empty repository: %+v", res)
 	}
 	r.Write("f.txt", "one\n")
 	r.CommitAll("one")
 	for _, rev := range []string{"no-such-branch", "HEAD~3", "HEAD^{tree}", "--output"} {
-		if res := cc(t, r, "", "export", "--commit="+rev); res.code != 1 || res.stdout != "" || !strings.Contains(res.stderr, "does not name a commit") {
+		if res := cc(t, r, "", "export", "--repository-id", testID, "--commit="+rev); res.code != 1 || res.stdout != "" || !strings.Contains(res.stderr, "does not name a commit") {
 			t.Errorf("export --commit=%s: %+v", rev, res)
 		}
 	}
 	if res := cc(t, r, "", "export", "extra"); res.code != 2 {
 		t.Errorf("unexpected argument: %+v", res)
 	}
-	if res := cc(t, r, t.TempDir(), "export"); res.code != 1 || res.stdout != "" || !strings.Contains(res.stderr, "no usable git repository") {
+	if res := cc(t, r, t.TempDir(), "export", "--repository-id", testID); res.code != 1 || res.stdout != "" || !strings.Contains(res.stderr, "no usable git repository") {
 		t.Errorf("export outside a repository: %+v", res)
 	}
 
@@ -282,7 +495,7 @@ func TestExportErrors(t *testing.T) {
 	r.CommitAll("two")
 	blob := strings.TrimSpace(r.Git("rev-parse", "HEAD:f.txt"))
 	os.Remove(filepath.Join(r.Dir, ".git", "objects", blob[:2], blob[2:]))
-	if res := cc(t, r, "", "export"); res.code != 1 || res.stdout != "" || !strings.Contains(res.stderr, "git diff-tree exited with status") {
+	if res := cc(t, r, "", "export", "--repository-id", testID); res.code != 1 || res.stdout != "" || !strings.Contains(res.stderr, "git diff-tree exited with status") {
 		t.Errorf("export with a missing object: %+v", res)
 	}
 }
@@ -309,7 +522,7 @@ func TestHookFailureKeepsCommit(t *testing.T) {
 		t.Errorf("stderr = %q", stderr)
 	}
 	if _, err := os.Stat(eventPath(r, head)); !os.IsNotExist(err) {
-		t.Errorf("snapshot exists after failure: %v", err)
+		t.Errorf("JSON exists after failure: %v", err)
 	}
 }
 
@@ -320,7 +533,7 @@ func TestMovedBinary(t *testing.T) {
 	copyBin := filepath.Join(dir, "commitcoach")
 	data, _ := os.ReadFile(binPath)
 	os.WriteFile(copyBin, data, 0o755)
-	if res := runBin(t, r, "", copyBin, "init"); res.code != 0 {
+	if res := runBin(t, r, "", copyBin, "init", "--repository-id", testID); res.code != 0 {
 		t.Fatalf("init: %+v", res)
 	}
 	os.Remove(copyBin)
@@ -334,13 +547,13 @@ func TestMovedBinary(t *testing.T) {
 	if res := cc(t, r, "", "status"); !strings.Contains(res.stdout, "MISSING") {
 		t.Errorf("status does not report the missing binary:\n%s", res.stdout)
 	}
-	// Recovery: run init with a binary that exists.
+	// Recovery: run init with a binary that exists (the saved ID is reused).
 	if res := cc(t, r, "", "init"); res.code != 0 || !strings.Contains(res.stdout, "updated the post-commit hook") {
 		t.Fatalf("re-init: %+v", res)
 	}
 	r.Write("a.txt", "y\n")
 	commit(t, r, "-a", "-m", "recovered")
-	readEvent(t, r, r.Head())
+	readPayload(t, r, r.Head())
 }
 
 func TestTimeout(t *testing.T) {
@@ -351,7 +564,7 @@ func TestTimeout(t *testing.T) {
 	r.Env = append(os.Environ(), "PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"))
 	for _, args := range [][]string{
 		{"hook", "post-commit", "--timeout", "500ms"},
-		{"export", "--timeout", "500ms"},
+		{"export", "--repository-id", testID, "--timeout", "500ms"},
 	} {
 		start := time.Now()
 		res := cc(t, r, "", args...)
@@ -366,13 +579,14 @@ func TestTimeout(t *testing.T) {
 
 func TestHookCommandOutput(t *testing.T) {
 	r := testutil.NewRepo(t)
+	r.Git("config", "--local", "commitcoach.repositoryId", testID)
 	r.Write("a.txt", "x\n")
 	head := r.CommitAll("one")
 	res := cc(t, r, "", "hook", "post-commit")
 	if res.code != 0 || res.stdout != "" || strings.Count(res.stderr, "\n") != 1 || !strings.Contains(res.stderr, head) {
 		t.Fatalf("hook: %+v", res)
 	}
-	readEvent(t, r, head)
+	readPayload(t, r, head)
 	for _, args := range [][]string{{"hook"}, {"hook", "pre-push"}, {}, {"nope"}} {
 		if res := cc(t, r, "", args...); res.code != 2 {
 			t.Errorf("%v: code %d", args, res.code)
@@ -385,10 +599,12 @@ func TestHookCommandOutput(t *testing.T) {
 
 func TestInitTwiceStatusAndUninstall(t *testing.T) {
 	r := testutil.NewRepo(t)
-	if res := cc(t, r, "", "status"); res.code != 0 || !strings.Contains(res.stdout, "not installed") || !strings.Contains(res.stdout, "conflicts:         none") {
+	res := cc(t, r, "", "status")
+	if res.code != 0 || !strings.Contains(res.stdout, "not installed") || !strings.Contains(res.stdout, "conflicts:         none") ||
+		!strings.Contains(res.stdout, "repository id:     not set") {
 		t.Errorf("status before init:\n%+v", res)
 	}
-	cc(t, r, "", "init")
+	cc(t, r, "", "init", "--repository-id", testID)
 	hookPath := filepath.Join(r.Dir, ".git", "hooks", "post-commit")
 	before, _ := os.ReadFile(hookPath)
 	if res := cc(t, r, "", "init"); res.code != 0 || !strings.Contains(res.stdout, "already installed") {
@@ -397,8 +613,8 @@ func TestInitTwiceStatusAndUninstall(t *testing.T) {
 	if after, _ := os.ReadFile(hookPath); !bytes.Equal(before, after) {
 		t.Error("second init changed the hook")
 	}
-	res := cc(t, r, "", "status")
-	for _, want := range []string{"installed by commitcoach, unmodified", binPath + " (ok, the binary you are running)", "(Git default)", "not created yet"} {
+	res = cc(t, r, "", "status")
+	for _, want := range []string{"installed by commitcoach, unmodified", binPath + " (ok, the binary you are running)", "(Git default)", "not created yet", testID} {
 		if !strings.Contains(res.stdout, want) {
 			t.Errorf("status lacks %q:\n%s", want, res.stdout)
 		}
@@ -407,20 +623,22 @@ func TestInitTwiceStatusAndUninstall(t *testing.T) {
 	r.Write("a.txt", "x\n")
 	r.Git("add", "-A")
 	commit(t, r, "-m", "one")
-	if res := cc(t, r, "", "uninstall"); res.code != 0 || !strings.Contains(res.stdout, "removed the post-commit hook") || !strings.Contains(res.stdout, "1 snapshot(s) were kept") {
+	res = cc(t, r, "", "uninstall")
+	if res.code != 0 || !strings.Contains(res.stdout, "removed the post-commit hook") || !strings.Contains(res.stdout, "1 snapshot(s) were kept") ||
+		!strings.Contains(res.stdout, "git config --local --unset commitcoach.repositoryId") {
 		t.Errorf("uninstall: %+v", res)
 	}
 	if _, err := os.Lstat(hookPath); !os.IsNotExist(err) {
 		t.Error("hook still exists")
 	}
-	readEvent(t, r, r.Head()) // snapshots are kept
+	readPayload(t, r, r.Head()) // saved JSON is kept
 	if res := cc(t, r, "", "uninstall"); res.code != 0 || !strings.Contains(res.stdout, "nothing to do") {
 		t.Errorf("second uninstall: %+v", res)
 	}
 	r.Write("a.txt", "y\n")
 	commit(t, r, "-a", "-m", "after uninstall")
 	if _, err := os.Stat(eventPath(r, r.Head())); !os.IsNotExist(err) {
-		t.Error("snapshot recorded after uninstall")
+		t.Error("JSON recorded after uninstall")
 	}
 }
 
@@ -430,13 +648,19 @@ func TestInitConflicts(t *testing.T) {
 		hookPath := filepath.Join(r.Dir, ".git", "hooks", "post-commit")
 		foreign := "#!/bin/sh\necho mine\n"
 		os.WriteFile(hookPath, []byte(foreign), 0o755)
-		res := cc(t, r, "", "init")
+		cfg := filepath.Join(r.Dir, ".git", "config")
+		cfgBefore, _ := os.ReadFile(cfg)
+		res := cc(t, r, "", "init", "--repository-id", testID)
 		if res.code != 1 || !strings.Contains(res.stderr, "not created by commitcoach") || !strings.Contains(res.stderr, "No file or setting was changed") ||
-			!strings.Contains(res.stderr, `'"'"'single'"'"'`) || !strings.Contains(res.stderr, "hook post-commit ||") {
+			!strings.Contains(res.stderr, `'"'"'single'"'"'`) || !strings.Contains(res.stderr, "hook post-commit ||") ||
+			!strings.Contains(res.stderr, "git config --local commitcoach.repositoryId "+testID) {
 			t.Errorf("init: %+v", res)
 		}
 		if got, _ := os.ReadFile(hookPath); string(got) != foreign {
 			t.Error("foreign hook changed")
+		}
+		if after, _ := os.ReadFile(cfg); !bytes.Equal(cfgBefore, after) {
+			t.Error("git config changed")
 		}
 		if res := cc(t, r, "", "uninstall"); res.code != 0 || !strings.Contains(res.stdout, "left unchanged") {
 			t.Errorf("uninstall: %+v", res)
@@ -454,7 +678,7 @@ func TestInitConflicts(t *testing.T) {
 		r.Git("config", "core.hooksPath", ".husky")
 		cfg := filepath.Join(r.Dir, ".git", "config")
 		before, _ := os.ReadFile(cfg)
-		res := cc(t, r, "", "init")
+		res := cc(t, r, "", "init", "--repository-id", testID)
 		if res.code != 1 || !strings.Contains(res.stderr, "core.hooksPath = .husky (local scope") ||
 			!strings.Contains(res.stderr, filepath.Join(".husky", "post-commit")) {
 			t.Errorf("init: %+v", res)
@@ -476,7 +700,7 @@ func TestInitConflicts(t *testing.T) {
 		content := "[core]\n\thooksPath = /opt/company-hooks\n"
 		os.WriteFile(global, []byte(content), 0o600)
 		r.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL="+global)
-		res := cc(t, r, "", "init")
+		res := cc(t, r, "", "init", "--repository-id", testID)
 		if res.code != 1 || !strings.Contains(res.stderr, "global scope") || !strings.Contains(res.stderr, "/opt/company-hooks/post-commit") {
 			t.Errorf("init: %+v", res)
 		}
@@ -488,7 +712,7 @@ func TestInitConflicts(t *testing.T) {
 
 func TestInitRefusals(t *testing.T) {
 	outside := &testutil.Repo{T: t, Dir: t.TempDir()}
-	if res := cc(t, outside, "", "init"); res.code != 1 || !strings.Contains(res.stderr, "not a git repository") {
+	if res := cc(t, outside, "", "init", "--repository-id", testID); res.code != 1 || !strings.Contains(res.stderr, "not a git repository") {
 		t.Errorf("init outside a repository: %+v", res)
 	}
 	if res := cc(t, outside, "", "status"); res.code != 1 || !strings.Contains(res.stderr, "no usable git repository") {
@@ -496,7 +720,7 @@ func TestInitRefusals(t *testing.T) {
 	}
 	bare := &testutil.Repo{T: t, Dir: filepath.Join(t.TempDir(), "bare.git")}
 	outside.Git("init", "-q", "--bare", bare.Dir)
-	if res := cc(t, bare, "", "init"); res.code != 1 || !strings.Contains(res.stderr, "bare repository") {
+	if res := cc(t, bare, "", "init", "--repository-id", testID); res.code != 1 || !strings.Contains(res.stderr, "bare repository") {
 		t.Errorf("init in a bare repository: %+v", res)
 	}
 	if _, err := os.Lstat(filepath.Join(bare.Dir, "hooks", "post-commit")); !os.IsNotExist(err) {
@@ -515,43 +739,50 @@ func TestLinkedWorktree(t *testing.T) {
 	wt.Git("add", "-A")
 	commit(t, wt, "-m", "in worktree")
 	head := strings.TrimSpace(wt.Git("rev-parse", "HEAD"))
-	ev := readEvent(t, r, head) // stored in the shared git directory
-	if *ev.Repository.CurrentBranch != "feature" || len(ev.Files) != 1 || *ev.Files[0].NewPath != "b.txt" {
-		t.Errorf("worktree snapshot: %+v %+v", ev.Repository, ev.Files)
+	p := readPayload(t, r, head) // stored in the shared git directory; the ID is shared too
+	if *p.Branch != "feature" || strings.Join(p.Files, ",") != "b.txt" || p.RepositoryID != testID {
+		t.Errorf("worktree payload: %+v", p)
 	}
 	if res := cc(t, wt, "", "status"); !strings.Contains(res.stdout, "linked worktree") || !strings.Contains(res.stdout, "installed by commitcoach") {
 		t.Errorf("status in worktree:\n%s", res.stdout)
 	}
 }
 
-func TestDetachedAmendAndMerge(t *testing.T) {
+func TestDetachedEmptyAmendAndMerge(t *testing.T) {
 	r := installed(t)
 	r.Write("a.txt", "one\n")
 	r.Git("add", "-A")
 	commit(t, r, "-m", "one")
 	base := r.Head()
 
-	// Detached HEAD: current_branch is null.
+	// Detached HEAD: branch is null.
 	r.Git("checkout", "-q", "--detach")
 	r.Write("a.txt", "detached\n")
 	commit(t, r, "-a", "-m", "detached")
-	if ev := readEvent(t, r, r.Head()); ev.Repository.CurrentBranch != nil {
-		t.Errorf("current_branch = %q", *ev.Repository.CurrentBranch)
+	data, _ := os.ReadFile(eventPath(r, r.Head()))
+	if p := decodePayload(t, data); p.Branch != nil || !bytes.Contains(data, []byte(`"branch": null`)) {
+		t.Errorf("branch = %q", *p.Branch)
 	}
 	r.Git("checkout", "-q", "main")
 
-	// Amend: the new commit gets its own snapshot; the old one is kept.
+	// Empty commit: files [] and an empty diff.
+	commit(t, r, "--allow-empty", "-m", "empty")
+	data, _ = os.ReadFile(eventPath(r, r.Head()))
+	if p := decodePayload(t, data); len(p.Files) != 0 || p.Diff != "" || !bytes.Contains(data, []byte(`"files": []`)) {
+		t.Errorf("empty commit:\n%s", data)
+	}
+
+	// Amend: the new commit gets its own JSON; the old one is kept.
 	r.Write("a.txt", "draft\n")
 	commit(t, r, "-a", "-m", "draft")
 	draft := r.Head()
 	r.Write("a.txt", "final\n")
 	commit(t, r, "-a", "--amend", "-m", "final")
 	amended := r.Head()
-	ev := readEvent(t, r, amended)
-	if ev.Commit.Message != "final\n" || *ev.Comparison.BaseSHA != base || !strings.Contains(*ev.Files[0].Patch, "+final") {
-		t.Errorf("amended snapshot: %+v %+v", ev.Commit, ev.Files)
+	if p := readPayload(t, r, amended); p.Message != "final\n" || !strings.Contains(p.Diff, "-one\n+final\n") {
+		t.Errorf("amended payload: %+v", p)
 	}
-	readEvent(t, r, draft)
+	readPayload(t, r, draft)
 
 	// Merge commit, exported: compared with the first parent.
 	r.Git("checkout", "-q", "-b", "topic", base)
@@ -561,10 +792,9 @@ func TestDetachedAmendAndMerge(t *testing.T) {
 	r.Git("checkout", "-q", "main")
 	r.Git("merge", "-q", "--no-ff", "-m", "merge topic", "topic")
 	res := cc(t, r, "", "export")
-	ev = decodeEvent(t, []byte(res.stdout))
-	if len(ev.Commit.Parents) != 2 || *ev.Comparison.BaseSHA != amended || ev.Comparison.Strategy != "first_parent" ||
-		len(ev.Files) != 1 || *ev.Files[0].NewPath != "topic.txt" {
-		t.Errorf("merge export: %+v %+v %+v", ev.Commit, ev.Comparison, ev.Files)
+	p := decodePayload(t, []byte(res.stdout))
+	if strings.Join(p.Files, ",") != "topic.txt" || strings.Contains(p.Diff, "a.txt") || !strings.Contains(res.stderr, "relative to the first parent only") {
+		t.Errorf("merge export: %+v\n%s", p, res.stderr)
 	}
 }
 
@@ -573,7 +803,7 @@ func TestDetachedAmendAndMerge(t *testing.T) {
 func TestOtherGitDirLayouts(t *testing.T) {
 	check := func(t *testing.T, work *testutil.Repo, gitDir string) {
 		t.Helper()
-		if res := cc(t, work, "", "init"); res.code != 0 {
+		if res := cc(t, work, "", "init", "--repository-id", testID); res.code != 0 {
 			t.Fatalf("init: %+v", res)
 		}
 		if _, err := os.Stat(filepath.Join(gitDir, "hooks", "post-commit")); err != nil {
@@ -585,10 +815,10 @@ func TestOtherGitDirLayouts(t *testing.T) {
 		head := strings.TrimSpace(work.Git("rev-parse", "HEAD"))
 		data, err := os.ReadFile(filepath.Join(gitDir, "commitcoach", "events", head+".json"))
 		if err != nil {
-			t.Fatalf("snapshot not in %s: %v", gitDir, err)
+			t.Fatalf("JSON not in %s: %v", gitDir, err)
 		}
-		if ev := decodeEvent(t, data); ev.Commit.SHA != head || *ev.Files[0].NewPath != "new.txt" {
-			t.Errorf("snapshot: %+v", ev.Files)
+		if p := decodePayload(t, data); p.CommitSHA != head || strings.Join(p.Files, ",") != "new.txt" {
+			t.Errorf("payload: %+v", p)
 		}
 	}
 
@@ -626,13 +856,11 @@ func TestExportInBareRepository(t *testing.T) {
 	head := src.CommitAll("two")
 	bare := &testutil.Repo{T: t, Dir: filepath.Join(t.TempDir(), "bare.git")}
 	src.Git("clone", "-q", "--bare", src.Dir, bare.Dir)
-	res := cc(t, bare, "", "export")
+	res := cc(t, bare, "", "export", "--repository-id", testID)
 	if res.code != 0 {
 		t.Fatalf("export: %+v", res)
 	}
-	ev := decodeEvent(t, []byte(res.stdout))
-	if ev.Commit.SHA != head || ev.Repository.Name != "bare" || *ev.Repository.CurrentBranch != "main" ||
-		len(ev.Files) != 1 || !strings.Contains(*ev.Files[0].Patch, "+two") {
-		t.Errorf("bare export: %+v %+v", ev.Repository, ev.Files)
+	if p := decodePayload(t, []byte(res.stdout)); p.CommitSHA != head || *p.Branch != "main" || !strings.Contains(p.Diff, "+two") {
+		t.Errorf("bare export: %+v", p)
 	}
 }

@@ -3,85 +3,75 @@ package event_test
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
-	"time"
 
 	"github.com/kobadaidesu/hook-test/internal/event"
 )
 
-// The schema in docs/ and the Go types must describe the same document.
+// The schema in docs/ and the Payload type must describe the same document.
 // There is no JSON Schema validator in the standard library, so these tests
-// compare the property lists and check the schema's rules by hand.
+// compare the property lists and check the schema's rules by hand, using
+// the patterns written in the schema itself.
+
+var (
+	schemaOnce sync.Once
+	schema     map[string]any
+	schemaErr  error
+)
 
 func loadSchema(t *testing.T) map[string]any {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join("..", "..", "docs", "commit-snapshot.schema.json"))
-	if err != nil {
-		t.Fatal(err)
+	schemaOnce.Do(func() {
+		data, err := os.ReadFile(filepath.Join("..", "..", "docs", "commit-payload.schema.json"))
+		if err != nil {
+			schemaErr = err
+			return
+		}
+		schemaErr = json.Unmarshal(data, &schema)
+	})
+	if schemaErr != nil {
+		t.Fatalf("loading the schema: %v", schemaErr)
 	}
-	var s map[string]any
-	if err := json.Unmarshal(data, &s); err != nil {
-		t.Fatalf("schema is not valid JSON: %v", err)
-	}
-	return s
+	return schema
 }
 
-func jsonTags(typ reflect.Type) []string {
-	var tags []string
+func schemaPattern(t *testing.T, prop string) *regexp.Regexp {
+	t.Helper()
+	p := loadSchema(t)["properties"].(map[string]any)[prop].(map[string]any)["pattern"].(string)
+	return regexp.MustCompile(p)
+}
+
+var payloadKeys = []string{"branch", "commit_sha", "diff", "files", "message", "repository_id"}
+
+func TestSchemaMatchesPayload(t *testing.T) {
+	s := loadSchema(t)
+	var props, required, tags []string
+	for k := range s["properties"].(map[string]any) {
+		props = append(props, k)
+	}
+	for _, r := range s["required"].([]any) {
+		required = append(required, r.(string))
+	}
+	typ := reflect.TypeOf(event.Payload{})
 	for i := 0; i < typ.NumField(); i++ {
 		tags = append(tags, strings.Split(typ.Field(i).Tag.Get("json"), ",")[0])
 	}
-	sort.Strings(tags)
-	return tags
-}
-
-func schemaKeys(t *testing.T, obj map[string]any) (props, required []string) {
-	t.Helper()
-	for k := range obj["properties"].(map[string]any) {
-		props = append(props, k)
-	}
-	for _, r := range obj["required"].([]any) {
-		required = append(required, r.(string))
-	}
 	sort.Strings(props)
 	sort.Strings(required)
-	if obj["additionalProperties"] != false {
-		t.Errorf("object schema allows additional properties")
+	sort.Strings(tags)
+	if !reflect.DeepEqual(props, payloadKeys) || !reflect.DeepEqual(required, payloadKeys) || !reflect.DeepEqual(tags, payloadKeys) {
+		t.Errorf("schema properties %v, required %v, Go fields %v; want %v", props, required, tags, payloadKeys)
 	}
-	return props, required
-}
-
-func TestSchemaMatchesGoTypes(t *testing.T) {
-	s := loadSchema(t)
-	defs := s["$defs"].(map[string]any)
-	for name, typ := range map[string]reflect.Type{
-		"":           reflect.TypeOf(event.Event{}),
-		"repository": reflect.TypeOf(event.Repository{}),
-		"commit":     reflect.TypeOf(event.Commit{}),
-		"comparison": reflect.TypeOf(event.Comparison{}),
-		"file":       reflect.TypeOf(event.File{}),
-		"summary":    reflect.TypeOf(event.Summary{}),
-	} {
-		obj := s
-		if name != "" {
-			obj = defs[name].(map[string]any)
-		}
-		props, required := schemaKeys(t, obj)
-		tags := jsonTags(typ)
-		if !reflect.DeepEqual(props, tags) || !reflect.DeepEqual(required, tags) {
-			t.Errorf("%s: schema properties %v, required %v; Go fields %v", typ.Name(), props, required, tags)
-		}
-	}
-	props := s["properties"].(map[string]any)
-	if props["schema_version"].(map[string]any)["const"] != event.SchemaVersion ||
-		props["event_type"].(map[string]any)["const"] != event.EventType {
-		t.Error("schema constants differ from the Go constants")
+	if s["additionalProperties"] != false {
+		t.Error("the schema allows additional properties")
 	}
 }
 
@@ -95,76 +85,101 @@ func TestExamplesMatchSchema(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		dec := json.NewDecoder(bytes.NewReader(data))
-		dec.DisallowUnknownFields()
-		var ev event.Event
-		if err := dec.Decode(&ev); err != nil {
-			t.Errorf("%s: %v", f, err)
-			continue
-		}
-		// Every key is present (null is allowed, missing is not).
-		reencoded, _ := event.Marshal(&ev)
-		if !sameKeys(data, reencoded) {
-			t.Errorf("%s: keys differ from the Go encoding", f)
-		}
-		checkInvariants(t, filepath.Base(f), &ev, data)
+		checkPayload(t, filepath.Base(f), data)
 	}
 }
 
-func sameKeys(a, b []byte) bool {
-	var x, y any
-	json.Unmarshal(a, &x)
-	json.Unmarshal(b, &y)
-	return reflect.DeepEqual(keyShape(x), keyShape(y))
-}
-
-// keyShape replaces every scalar with nil so only the structure is compared.
-func keyShape(v any) any {
-	switch v := v.(type) {
-	case map[string]any:
-		m := map[string]any{}
-		for k, e := range v {
-			m[k] = keyShape(e)
-		}
-		return m
-	case []any:
-		var l []any
-		for _, e := range v {
-			l = append(l, keyShape(e))
-		}
-		return l
-	}
-	return nil
-}
-
-var objectIDRE = regexp.MustCompile(`^[0-9a-f]+$`)
-
-// checkInvariants checks the rules that docs/commit-snapshot.schema.json
-// states with const, enum, pattern, if/then and oneOf.
-func checkInvariants(t *testing.T, name string, ev *event.Event, raw []byte) {
+// checkPayload checks one JSON document against the schema's rules and
+// returns it decoded.
+func checkPayload(t *testing.T, name string, data []byte) *event.Payload {
 	t.Helper()
 	fail := func(format string, a ...any) { t.Helper(); t.Errorf(name+": "+format, a...) }
-	if ev.SchemaVersion != "1.0" || ev.EventType != "commit.snapshot" {
-		fail("header %s %s", ev.SchemaVersion, ev.EventType)
+
+	var generic map[string]any
+	if err := json.Unmarshal(data, &generic); err != nil {
+		t.Fatalf("%s: not a JSON object: %v", name, err)
 	}
-	for _, d := range []string{ev.CapturedAt, ev.Commit.AuthoredAt, ev.Commit.CommittedAt} {
-		if _, err := time.Parse(time.RFC3339, d); err != nil {
-			fail("date %q", d)
+	var keys []string
+	for k := range generic {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	if !reflect.DeepEqual(keys, payloadKeys) {
+		fail("top-level keys %v, want exactly %v", keys, payloadKeys)
+	}
+
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	var p event.Payload
+	if err := dec.Decode(&p); err != nil {
+		t.Fatalf("%s: %v", name, err)
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		fail("more than one JSON value")
+	}
+	if !schemaPattern(t, "repository_id").MatchString(p.RepositoryID) {
+		fail("repository_id %q", p.RepositoryID)
+	}
+	if !schemaPattern(t, "commit_sha").MatchString(p.CommitSHA) {
+		fail("commit_sha %q", p.CommitSHA)
+	}
+	if p.Branch != nil && *p.Branch == "" {
+		fail("empty branch")
+	}
+	if p.Files == nil {
+		fail("files is null")
+	}
+	seen := map[string]bool{}
+	for _, f := range p.Files {
+		if f == "" || seen[f] {
+			fail("files has an empty or repeated entry %q", f)
+		}
+		seen[f] = true
+	}
+	// files and diff describe the same files, in the same order.
+	headers := sectionHeaders(p.Diff)
+	if len(p.Files) == 0 && p.Diff != "" || len(headers) < len(p.Files) {
+		fail("%d files but %d diff sections", len(p.Files), len(headers))
+	}
+	h := 0
+	for _, f := range p.Files {
+		quoted := gitQuoter.Replace(f) // how git writes the path in a header
+		for h < len(headers) && !strings.Contains(headers[h], f) && !strings.Contains(headers[h], quoted) {
+			h++
+		}
+		if h == len(headers) {
+			fail("no diff section (in order) for %q", f)
+			break
 		}
 	}
-	if !strings.HasSuffix(ev.CapturedAt, "Z") {
-		fail("captured_at is not UTC: %s", ev.CapturedAt)
+	if p.Diff != "" && !strings.HasPrefix(p.Diff, "diff --git ") {
+		fail("diff does not start with a section header")
 	}
-	if !objectIDRE.MatchString(ev.Commit.SHA) {
-		fail("sha %q", ev.Commit.SHA)
-	}
-	for _, p := range ev.Commit.Parents {
-		if !objectIDRE.MatchString(p) {
-			fail("parent %q", p)
+	return &p
+}
+
+// gitQuoter escapes the characters git escapes in quoted header paths.
+var gitQuoter = strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\t", `\t`, "\n", `\n`)
+
+// sectionHeaders returns the lines that start a patch section.
+func sectionHeaders(diff string) []string {
+	var h []string
+	for _, line := range strings.Split(diff, "\n") {
+		if strings.HasPrefix(line, "diff --git ") {
+			h = append(h, line)
 		}
 	}
+	return h
+}
+
+func countSections(diff string) int { return len(sectionHeaders(diff)) }
+
+// checkEvent checks the invariants of the internal snapshot.
+func checkEvent(t *testing.T, name string, ev *event.Event) {
+	t.Helper()
+	fail := func(format string, a ...any) { t.Helper(); t.Errorf(name+": "+format, a...) }
 	if ev.Commit.Parents == nil || ev.Files == nil || ev.Warnings == nil {
-		fail("an array is null")
+		fail("a list is nil")
 	}
 	switch ev.Comparison.Strategy {
 	case "first_parent":
@@ -180,9 +195,6 @@ func checkInvariants(t *testing.T, name string, ev *event.Event, raw []byte) {
 	}
 	truncated := ev.Summary.OmittedFiles > 0
 	for i, f := range ev.Files {
-		if len(f.Status) != 1 || f.Status[0] < 'A' || f.Status[0] > 'Z' {
-			fail("files[%d].status %q", i, f.Status)
-		}
 		switch f.Status {
 		case "A":
 			if f.OldPath != nil || f.NewPath == nil {
@@ -192,40 +204,23 @@ func checkInvariants(t *testing.T, name string, ev *event.Event, raw []byte) {
 			if f.OldPath == nil || f.NewPath != nil {
 				fail("files[%d]: deleted file paths", i)
 			}
-		case "M", "R", "T":
+		default:
 			if f.OldPath == nil || f.NewPath == nil {
 				fail("files[%d]: paths", i)
 			}
 		}
 		if (f.Patch == nil) == (f.OmittedReason == nil) {
-			fail("files[%d]: patch and omitted_reason must be exclusive", i)
+			fail("files[%d]: patch and omitted reason must be exclusive", i)
 		}
-		if f.OmittedReason != nil {
-			switch *f.OmittedReason {
-			case "binary", "sensitive_path":
-			case "total_patch_limit":
-				truncated = true
-			default:
-				fail("files[%d].omitted_reason %q", i, *f.OmittedReason)
-			}
-			if f.PatchTruncated {
-				fail("files[%d]: omitted patch marked truncated", i)
-			}
-		}
-		if f.Binary && (f.Patch != nil || f.Additions != nil || f.Deletions != nil || *f.OmittedReason != "binary") {
-			fail("files[%d]: binary file fields", i)
-		}
-		if f.PatchTruncated {
+		if f.OmittedReason != nil && *f.OmittedReason == "total_patch_limit" || f.PatchTruncated {
 			truncated = true
+		}
+		if f.Binary && (f.Patch != nil || f.Additions != nil || *f.OmittedReason != "binary") {
+			fail("files[%d]: binary file fields", i)
 		}
 	}
 	s := ev.Summary
 	if s.IncludedFiles != len(ev.Files) || s.OmittedFiles != s.ChangedFiles-s.IncludedFiles || s.Truncated != truncated {
 		fail("summary %+v inconsistent with files", s)
-	}
-	for _, key := range []string{`"files": [`, `"parents": [`, `"warnings": [`} {
-		if !bytes.Contains(raw, []byte(key)) {
-			fail("JSON lacks %s", key)
-		}
 	}
 }

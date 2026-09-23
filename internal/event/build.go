@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"github.com/kobadaidesu/hook-test/internal/gitrepo"
@@ -13,10 +12,13 @@ import (
 // maxGitStderrWarnings bounds how many lines of git's stderr become warnings.
 const maxGitStderrWarnings = 10
 
+// replacementChar replaces bytes that are not valid UTF-8 (U+FFFD).
+const replacementChar = string(utf8.RuneError)
+
 // Build makes the snapshot of the commit named by the full object name oid.
 // It reads only objects of that commit and its first parent, never the
 // working tree or the index, so uncommitted changes cannot leak in.
-func Build(ctx context.Context, repo *gitrepo.Repo, oid string, limits Limits, capturedAt time.Time) (*Event, error) {
+func Build(ctx context.Context, repo *gitrepo.Repo, oid string, limits Limits) (*Event, error) {
 	c, err := repo.ReadCommit(ctx, oid)
 	if err != nil {
 		return nil, fmt.Errorf("reading commit %s: %w", oid, err)
@@ -24,18 +26,12 @@ func Build(ctx context.Context, repo *gitrepo.Repo, oid string, limits Limits, c
 	w := &warnings{list: []string{}}
 
 	ev := &Event{
-		SchemaVersion: SchemaVersion,
-		EventType:     EventType,
-		CapturedAt:    capturedAt.UTC().Format(time.RFC3339),
-		Repository:    Repository{Name: w.text("repository.name", repo.DisplayName())},
 		Commit: Commit{
-			SHA:         c.OID,
-			Parents:     c.Parents,
-			Message:     w.text("commit.message", c.Message),
-			AuthorName:  w.text("commit.author_name", c.AuthorName),
-			AuthoredAt:  c.AuthorDate.Format(time.RFC3339),
-			CommittedAt: c.CommitterDate.Format(time.RFC3339),
+			SHA:     c.OID,
+			Parents: c.Parents,
+			Message: w.text("the commit message", c.Message),
 		},
+		Limits: limits,
 	}
 
 	branch, ok, err := repo.CurrentBranch(ctx)
@@ -43,7 +39,7 @@ func Build(ctx context.Context, repo *gitrepo.Repo, oid string, limits Limits, c
 		return nil, fmt.Errorf("reading the current branch: %w", err)
 	}
 	if ok {
-		b := w.text("repository.current_branch", branch)
+		b := w.text("the branch name", branch)
 		ev.Repository.CurrentBranch = &b
 	}
 
@@ -61,7 +57,7 @@ func Build(ctx context.Context, repo *gitrepo.Repo, oid string, limits Limits, c
 		ev.Comparison.Strategy = StrategyFirstParent
 		ev.Comparison.BaseSHA = &base
 		if len(c.Parents) > 1 {
-			w.add(fmt.Sprintf("merge commit with %d parents: files and patches show the changes relative to the first parent only", len(c.Parents)))
+			w.add(fmt.Sprintf("merge commit with %d parents: files and diff show the changes relative to the first parent only", len(c.Parents)))
 		}
 	}
 
@@ -78,15 +74,10 @@ func Build(ctx context.Context, repo *gitrepo.Repo, oid string, limits Limits, c
 	}
 
 	ev.Files = make([]File, 0, len(d.Files))
-	truncatedPatches, totalLimitHit := 0, false
-	for i, fc := range d.Files {
-		f := convertFile(i, fc, w)
-		if f.PatchTruncated {
-			truncatedPatches++
-		}
-		if fc.PatchState == gitrepo.PatchOmittedTotalLimit {
-			totalLimitHit = true
-		}
+	truncated := false
+	for _, fc := range d.Files {
+		f := convertFile(fc, w)
+		truncated = truncated || f.PatchTruncated || fc.PatchState == gitrepo.PatchOmittedTotalLimit
 		ev.Files = append(ev.Files, f)
 	}
 	ev.Summary = Summary{
@@ -94,20 +85,8 @@ func Build(ctx context.Context, repo *gitrepo.Repo, oid string, limits Limits, c
 		IncludedFiles: len(ev.Files),
 		OmittedFiles:  d.TotalFiles - len(ev.Files),
 	}
-	ev.Summary.Truncated = ev.Summary.OmittedFiles > 0 || truncatedPatches > 0 || totalLimitHit
+	ev.Summary.Truncated = ev.Summary.OmittedFiles > 0 || truncated
 
-	if ev.Summary.OmittedFiles > 0 {
-		w.add(fmt.Sprintf("files lists the first %d of %d changed files (limit: %d files per event)",
-			len(ev.Files), d.TotalFiles, limits.MaxFiles))
-	}
-	if truncatedPatches > 0 {
-		w.add(fmt.Sprintf("%d patch(es) were cut at a size limit (%d bytes per file, %d bytes per event); see patch_truncated",
-			truncatedPatches, limits.MaxFilePatchBytes, limits.MaxTotalPatchBytes))
-	}
-	if totalLimitHit {
-		w.add(fmt.Sprintf("patch text reached the limit of %d bytes per event; later files have no patch (omitted_reason %q)",
-			limits.MaxTotalPatchBytes, OmittedTotalPatchLimit))
-	}
 	gitLines := 0
 	for _, line := range strings.Split(d.GitStderr, "\n") {
 		if line = strings.TrimSpace(line); line == "" {
@@ -118,7 +97,7 @@ func Build(ctx context.Context, repo *gitrepo.Repo, oid string, limits Limits, c
 			break
 		}
 		gitLines++
-		w.add("git: " + strings.ToValidUTF8(line, "�"))
+		w.add("git: " + strings.ToValidUTF8(line, replacementChar))
 	}
 	ev.Warnings = w.list
 	return ev, nil
@@ -143,14 +122,15 @@ func requireObject(ctx context.Context, repo *gitrepo.Repo, oid string) error {
 		"(the commit is not treated as a root commit)%s", oid, hint)
 }
 
-func convertFile(i int, fc gitrepo.FileChange, w *warnings) File {
+func convertFile(fc gitrepo.FileChange, w *warnings) File {
 	f := File{Status: fc.Status, Binary: fc.Binary}
+	// %q shows the exact bytes of a path that is not valid UTF-8.
 	if fc.OldPath != "" {
-		p := w.text(fmt.Sprintf("files[%d].old_path", i), fc.OldPath)
+		p := w.text(fmt.Sprintf("the path %q", fc.OldPath), fc.OldPath)
 		f.OldPath = &p
 	}
 	if fc.NewPath != "" {
-		p := w.text(fmt.Sprintf("files[%d].new_path", i), fc.NewPath)
+		p := w.text(fmt.Sprintf("the path %q", fc.NewPath), fc.NewPath)
 		f.NewPath = &p
 	}
 	if !fc.Binary {
@@ -164,7 +144,11 @@ func convertFile(i int, fc gitrepo.FileChange, w *warnings) File {
 		f.Patch = &p
 		f.PatchTruncated = fc.PatchTruncated
 		if fc.PatchInvalidUTF8 {
-			w.add(fmt.Sprintf("files[%d].patch contained bytes that are not valid UTF-8; they were replaced with U+FFFD", i))
+			path := fc.NewPath
+			if path == "" {
+				path = fc.OldPath
+			}
+			w.add(fmt.Sprintf("the diff of %q contained bytes that are not valid UTF-8; they were replaced with U+FFFD", path))
 		}
 	case gitrepo.PatchOmittedBinary:
 		reason = OmittedBinary
@@ -186,10 +170,10 @@ func (w *warnings) add(s string) { w.list = append(w.list, s) }
 // text returns s as valid UTF-8. JSON strings cannot carry arbitrary bytes,
 // so invalid bytes are replaced with U+FFFD, and a warning says so: the
 // value then no longer matches the repository exactly.
-func (w *warnings) text(field, s string) string {
+func (w *warnings) text(what, s string) string {
 	if utf8.ValidString(s) {
 		return s
 	}
-	w.add(fmt.Sprintf("%s is not valid UTF-8; invalid bytes were replaced with U+FFFD, so it differs from the value in the repository", field))
-	return strings.ToValidUTF8(s, "�")
+	w.add(fmt.Sprintf("%s is not valid UTF-8; invalid bytes were replaced with U+FFFD, so it differs from the value in the repository", what))
+	return strings.ToValidUTF8(s, replacementChar)
 }

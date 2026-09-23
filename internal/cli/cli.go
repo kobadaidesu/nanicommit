@@ -26,14 +26,16 @@ const (
 	setupTimeout = 30 * time.Second
 )
 
-const usageText = `commitcoach records Git commits as structured JSON snapshots.
+const usageText = `commitcoach turns Git commits into JSON for the learning backend.
 
 Usage:
-  commitcoach init                  install the post-commit hook in this repository
+  commitcoach init --repository-id UUID
+                                    install the post-commit hook in this repository
+                                    and save its repository ID
   commitcoach status                show the hook and snapshot setup of this repository
   commitcoach uninstall             remove the hook that commitcoach installed
-  commitcoach export [--commit REV] [--output PATH|-]
-                                    write the snapshot of a commit (default HEAD) as JSON
+  commitcoach export [--commit REV] [--output PATH|-] [--repository-id UUID]
+                                    write the JSON of a commit (default HEAD)
   commitcoach hook post-commit      run by the post-commit hook (internal)
 
 Run "commitcoach <command> -h" for the options of a command.

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/kobadaidesu/hook-test/docs/commit-payload.schema.json",
+  "title": "commitcoach commit payload",
+  "description": "The changes of one commit, for the backend that generates learning questions. Produced by `commitcoach export` and by the post-commit hook. Files that look like they hold secrets and binary files are left out of both files and diff. A commit beyond the size limits produces no document at all.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["repository_id", "commit_sha", "branch", "message", "files", "diff"],
+  "properties": {
+    "repository_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "description": "UUID of the repository registered in the backend (lowercase). Set with `commitcoach init --repository-id` or `export --repository-id`. Unrelated to Git object names and directory names."
+    },
+    "commit_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]+$",
+      "description": "Full object name of the commit (40 hexadecimal characters in SHA-1 repositories, 64 in SHA-256 ones)."
+    },
+    "branch": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "description": "Branch checked out when the document was made, which is not necessarily a branch containing the commit (for example when an older commit is exported). null when HEAD is detached."
+    },
+    "message": {
+      "type": "string",
+      "description": "Full commit message, unmodified (all lines, usually ending with a newline)."
+    },
+    "files": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true,
+      "description": "Repository-relative paths of the files in diff, in the same order (Git's path order): the new path for added, modified and renamed files, the old path for deleted files. [] when there are none."
+    },
+    "diff": {
+      "type": "string",
+      "description": "Unified diff of the files in files, as printed by git diff-tree, against the first parent (the empty tree for a root commit; the first parent for a merge commit). Empty when there are no such files."
+    }
+  }
+}
