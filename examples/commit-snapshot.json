@@ -1,0 +1,87 @@
+{
+  "schema_version": "1.0",
+  "event_type": "commit.snapshot",
+  "captured_at": "2026-09-23T22:28:11Z",
+  "repository": {
+    "name": "demo-repo",
+    "current_branch": "main"
+  },
+  "commit": {
+    "sha": "70298ce05b6fa1c0811d3fe0f870e1dfd841ce15",
+    "parents": [
+      "8cd948cf3e93db50e6b30eaab2c366131fdd538d"
+    ],
+    "message": "Fix addition and tidy up\n\n- add() が引き算になっていた不具合を修正\n- 未使用の legacy.go を削除し、メモを \"使い方 メモ.txt\" に改名\n",
+    "author_name": "Example Developer",
+    "authored_at": "2026-09-24T09:59:00+09:00",
+    "committed_at": "2026-09-24T10:00:00+09:00"
+  },
+  "comparison": {
+    "strategy": "first_parent",
+    "base_sha": "8cd948cf3e93db50e6b30eaab2c366131fdd538d"
+  },
+  "files": [
+    {
+      "status": "A",
+      "old_path": null,
+      "new_path": ".env",
+      "additions": 1,
+      "deletions": 0,
+      "binary": false,
+      "patch": null,
+      "patch_truncated": false,
+      "omitted_reason": "sensitive_path"
+    },
+    {
+      "status": "A",
+      "old_path": null,
+      "new_path": "assets/logo.png",
+      "additions": null,
+      "deletions": null,
+      "binary": true,
+      "patch": null,
+      "patch_truncated": false,
+      "omitted_reason": "binary"
+    },
+    {
+      "status": "R",
+      "old_path": "docs/notes.txt",
+      "new_path": "docs/使い方 メモ.txt",
+      "additions": 1,
+      "deletions": 0,
+      "binary": false,
+      "patch": "diff --git a/docs/notes.txt b/docs/使い方 メモ.txt\nsimilarity index 71%\nrename from docs/notes.txt\nrename to docs/使い方 メモ.txt\nindex 94c99a3..a7287cf 100644\n--- a/docs/notes.txt\n+++ b/docs/使い方 メモ.txt\t\n@@ -3,3 +3,4 @@ line 2\n line 3\n line 4\n line 5\n+line 6 追加\n",
+      "patch_truncated": false,
+      "omitted_reason": null
+    },
+    {
+      "status": "M",
+      "old_path": "src/add.go",
+      "new_path": "src/add.go",
+      "additions": 1,
+      "deletions": 1,
+      "binary": false,
+      "patch": "diff --git a/src/add.go b/src/add.go\nindex 2367180..1bc3191 100644\n--- a/src/add.go\n+++ b/src/add.go\n@@ -1,5 +1,5 @@\n package calc\n \n func add(a, b int) int {\n-\treturn a - b\n+\treturn a + b\n }\n",
+      "patch_truncated": false,
+      "omitted_reason": null
+    },
+    {
+      "status": "D",
+      "old_path": "src/legacy.go",
+      "new_path": null,
+      "additions": 0,
+      "deletions": 6,
+      "binary": false,
+      "patch": "diff --git a/src/legacy.go b/src/legacy.go\ndeleted file mode 100644\nindex b7b3d9f..0000000\n--- a/src/legacy.go\n+++ /dev/null\n@@ -1,6 +0,0 @@\n-package calc\n-\n-// Old helper, kept for compatibility.\n-func sub(a, b int) int {\n-\treturn a - b\n-}\n",
+      "patch_truncated": false,
+      "omitted_reason": null
+    }
+  ],
+  "summary": {
+    "changed_files": 5,
+    "included_files": 5,
+    "omitted_files": 0,
+    "truncated": false
+  },
+  "warnings": []
+}

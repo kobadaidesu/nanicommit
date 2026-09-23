@@ -1,0 +1,46 @@
+{
+  "schema_version": "1.0",
+  "event_type": "commit.snapshot",
+  "captured_at": "2026-09-23T22:28:28Z",
+  "repository": {
+    "name": "demo-repo",
+    "current_branch": "main"
+  },
+  "commit": {
+    "sha": "40ff146b6d1f4918ba61178955f85b4297c969d0",
+    "parents": [
+      "288299e42223170664d88ef3d726d2b1b0623c57",
+      "2ba35a37a8409386d10dcafe971bc26aca9d498c"
+    ],
+    "message": "Merge branch 'feature/mul'\n",
+    "author_name": "Example Developer",
+    "authored_at": "2026-09-24T10:20:00+09:00",
+    "committed_at": "2026-09-24T10:20:00+09:00"
+  },
+  "comparison": {
+    "strategy": "first_parent",
+    "base_sha": "288299e42223170664d88ef3d726d2b1b0623c57"
+  },
+  "files": [
+    {
+      "status": "A",
+      "old_path": null,
+      "new_path": "src/mul.go",
+      "additions": 5,
+      "deletions": 0,
+      "binary": false,
+      "patch": "diff --git a/src/mul.go b/src/mul.go\nnew file mode 100644\nindex 0000000..e992d69\n--- /dev/null\n+++ b/src/mul.go\n@@ -0,0 +1,5 @@\n+package calc\n+\n+func mul(a, b int) int {\n+\treturn a * b\n+}\n",
+      "patch_truncated": false,
+      "omitted_reason": null
+    }
+  ],
+  "summary": {
+    "changed_files": 1,
+    "included_files": 1,
+    "omitted_files": 0,
+    "truncated": false
+  },
+  "warnings": [
+    "merge commit with 2 parents: files and patches show the changes relative to the first parent only"
+  ]
+}
