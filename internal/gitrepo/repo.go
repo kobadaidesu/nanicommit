@@ -216,6 +216,14 @@ func (r *Repo) ConfigValues(ctx context.Context, key string) ([]ConfigValue, err
 	return values, nil
 }
 
+// SetLocalConfig sets key in the repository's own configuration file
+// (.git/config, shared by all worktrees). Other scopes, such as the global
+// configuration, are never written.
+func (r *Repo) SetLocalConfig(ctx context.Context, key, value string) error {
+	_, err := r.run.Output(ctx, "config", "--local", "--replace-all", key, value)
+	return err
+}
+
 // IsShallow reports whether the repository is a shallow clone.
 func (r *Repo) IsShallow(ctx context.Context) (bool, error) {
 	out, err := r.run.Output(ctx, "rev-parse", "--is-shallow-repository")
