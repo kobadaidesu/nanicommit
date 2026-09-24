@@ -1,0 +1,12 @@
+{
+  "repository_id": "550e8400-e29b-41d4-a716-446655440000",
+  "commit_sha": "0226edda3ed64eb7821ee827df5a63c8f9d21012",
+  "branch": "feature/cache",
+  "message": "キャッシュ削除処理を追加\n\n- get() でキャッシュを使う\n- delete() でキャッシュも削除する\n- 未使用の legacy.py を削除し、メモを改名\n",
+  "files": [
+    "docs/設計 メモ.md",
+    "src/legacy.py",
+    "src/user_service.py"
+  ],
+  "diff": "diff --git a/docs/notes.md b/docs/設計 メモ.md\nsimilarity index 55%\nrename from docs/notes.md\nrename to docs/設計 メモ.md\nindex 63d8dfd..a95bf21 100644\n--- a/docs/notes.md\n+++ b/docs/設計 メモ.md\t\n@@ -1,4 +1,4 @@\n # Notes\n \n - users are loaded from the repository\n-- nothing is cached yet\n+- 削除時にキャッシュも消す\ndiff --git a/src/legacy.py b/src/legacy.py\ndeleted file mode 100644\nindex 274c900..0000000\n--- a/src/legacy.py\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-def legacy_lookup(user_id):\n-    return None\ndiff --git a/src/user_service.py b/src/user_service.py\nindex d7d4c98..91bfb7f 100644\n--- a/src/user_service.py\n+++ b/src/user_service.py\n@@ -1,6 +1,15 @@\n class UserService:\n-    def __init__(self, repo):\n+    def __init__(self, repo, cache):\n         self.repo = repo\n+        self.cache = cache\n \n     def get(self, user_id):\n-        return self.repo.find(user_id)\n+        if user_id in self.cache:\n+            return self.cache[user_id]\n+        user = self.repo.find(user_id)\n+        self.cache[user_id] = user\n+        return user\n+\n+    def delete(self, user_id):\n+        self.repo.delete(user_id)\n+        self.cache.pop(user_id, None)\n"
+}
