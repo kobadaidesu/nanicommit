@@ -3,7 +3,7 @@
 `git commit` の変更内容を学習問題に変えるサービスのモノレポです。開発者がcommitするたびに、その差分から理解度チェックの問題を生成し、全問正解でpushを許可する——という体験を目指しています。
 
 ```
-git commit → post-commitフック（hooks/ のGo CLI） → 6項目のJSON → バックエンド（予定） → 学習UI（web/）
+git commit → post-commitフック（hooks/ のGo CLI） → 6項目のJSON → バックエンド（予定） → 学習UI（frontend/）
 ```
 
 ## 構成
@@ -11,8 +11,8 @@ git commit → post-commitフック（hooks/ のGo CLI） → 6項目のJSON →
 | ディレクトリ | 内容 | 状態 |
 |---|---|---|
 | [hooks/](hooks/) | Go製CLI `commitcoach`。post-commitフックを導入し、commitを6項目のJSONにして保存する | 実装済み（[hooks/README.md](hooks/README.md)） |
-| [web/](web/) | 学習UI（React + Vite + TypeScript + Tailwind）。モックデータで動くUI先行実装 | UIモック実装済み（`cd web && npm install && npm run dev`） |
-| [docs/](docs/) | [commit-payload.schema.json](docs/commit-payload.schema.json) — hooks・web・バックエンドで共有する6項目JSONのスキーマ | — |
+| [frontend/](frontend/) | 学習UI（React + Vite + TypeScript + Tailwind）。モックデータで動くUI先行実装 | UIモック実装済み（`cd frontend && npm install && npm run dev`） |
+| [docs/](docs/) | [commit-payload.schema.json](docs/commit-payload.schema.json) — hooks・frontend・バックエンドで共有する6項目JSONのスキーマ | — |
 | [examples/](examples/) | CLIが実際に生成したサンプルJSON | — |
 | backend/ | 問題生成・採点・push許可のバックエンド（Python + Supabase 予定） | 未実装 |
 
@@ -29,4 +29,4 @@ git commit → post-commitフック（hooks/ のGo CLI） → 6項目のJSON →
 }
 ```
 
-詳細は [docs/commit-payload.schema.json](docs/commit-payload.schema.json) と [hooks/README.md](hooks/README.md) を参照。webのクイズAPI契約案は [web/src/types/quiz.ts](web/src/types/quiz.ts) にあります。
+詳細は [docs/commit-payload.schema.json](docs/commit-payload.schema.json) と [hooks/README.md](hooks/README.md) を参照。フロントエンドのクイズAPI契約案は [frontend/src/types/quiz.ts](frontend/src/types/quiz.ts) にあります。
