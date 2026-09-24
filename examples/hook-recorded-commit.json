@@ -1,0 +1,10 @@
+{
+  "repository_id": "550e8400-e29b-41d4-a716-446655440000",
+  "commit_sha": "90d7b09c3cfe55ad98a263743b8e1057aafea78e",
+  "branch": "main",
+  "message": "feat: getにキャッシュ、get/deleteにID検証を追加\n",
+  "files": [
+    "src/services.py"
+  ],
+  "diff": "diff --git a/src/services.py b/src/services.py\nindex 3949ebb..7bed2cd 100644\n--- a/src/services.py\n+++ b/src/services.py\n@@ -1,9 +1,15 @@\n class UserService:  # renamed module\n-    def __init__(self, repo):\n+    def __init__(self, repo, cache=None):\n         self.repo = repo\n+        self.cache = cache if cache is not None else {}\n \n     def get(self, user_id):\n-        return self.repo.find(user_id)\n+        self._validate_id(user_id)\n+        if user_id in self.cache:\n+            return self.cache[user_id]\n+        user = self.repo.find(user_id)\n+        self.cache[user_id] = user\n+        return user\n \n     def list_all(self):\n         return self.repo.all()\n@@ -15,4 +21,10 @@ class UserService:  # renamed module\n         return self.repo.find(user_id) is not None\n \n     def delete(self, user_id):\n+        self._validate_id(user_id)\n         self.repo.delete(user_id)\n+        self.cache.pop(user_id, None)\n+\n+    def _validate_id(self, user_id):\n+        if not isinstance(user_id, int) or user_id <= 0:\n+            raise ValueError(f\"不正なユーザーID: {user_id!r}\")\n"
+}

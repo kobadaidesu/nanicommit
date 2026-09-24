@@ -1,0 +1,14 @@
+{
+  "repository_id": "550e8400-e29b-41d4-a716-446655440000",
+  "commit_sha": "9c0ca259001a119533b9cab4a3abd2ef3a2f293b",
+  "branch": "main",
+  "message": "feat: mul追加、utilsをリネーム、CLI追加、readme削除\n\nいろいろな種類の変更を1コミットに詰めたデモ\n",
+  "files": [
+    "docs/readme.md",
+    "src/calc.py",
+    "src/cli.py",
+    "src/old_utils.py",
+    "src/text_utils.py"
+  ],
+  "diff": "diff --git a/docs/readme.md b/docs/readme.md\ndeleted file mode 100644\nindex 4ff1d4d..0000000\n--- a/docs/readme.md\n+++ /dev/null\n@@ -1,3 +0,0 @@\n-# calc\n-\n-simple calculator\ndiff --git a/src/calc.py b/src/calc.py\nindex 6cddd28..f5eecb0 100644\n--- a/src/calc.py\n+++ b/src/calc.py\n@@ -3,3 +3,7 @@ def add(a, b):\n \n def sub(a, b):\n     return a - b\n+\n+def mul(a, b):\n+    \"\"\"掛け算を追加\"\"\"\n+    return a * b\ndiff --git a/src/cli.py b/src/cli.py\nnew file mode 100755\nindex 0000000..830f46d\n--- /dev/null\n+++ b/src/cli.py\n@@ -0,0 +1,4 @@\n+from calc import add\n+\n+if __name__ == \"__main__\":\n+    print(add(1, 2))\ndiff --git a/src/old_utils.py b/src/old_utils.py\ndeleted file mode 100644\nindex d0ac53b..0000000\n--- a/src/old_utils.py\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-def shout(s):\n-    return s.upper()\ndiff --git a/src/text_utils.py b/src/text_utils.py\nnew file mode 100644\nindex 0000000..c6459e0\n--- /dev/null\n+++ b/src/text_utils.py\n@@ -0,0 +1,5 @@\n+def shout(s):\n+    return s.upper()\n+\n+def whisper(s):\n+    return s.lower()\n"
+}

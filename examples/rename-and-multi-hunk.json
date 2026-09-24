@@ -1,0 +1,11 @@
+{
+  "repository_id": "550e8400-e29b-41d4-a716-446655440000",
+  "commit_sha": "3370c64e2d82b468d64dd740588cd70e3bb922f5",
+  "branch": "main",
+  "message": "refactor: user_serviceをservicesへ改名、calcにdiv追加\n",
+  "files": [
+    "src/calc.py",
+    "src/services.py"
+  ],
+  "diff": "diff --git a/src/calc.py b/src/calc.py\nindex f5eecb0..0352503 100644\n--- a/src/calc.py\n+++ b/src/calc.py\n@@ -1,4 +1,5 @@\n def add(a, b):\n+    # 加算\n     return a + b\n \n def sub(a, b):\n@@ -7,3 +8,8 @@ def sub(a, b):\n def mul(a, b):\n     \"\"\"掛け算を追加\"\"\"\n     return a * b\n+\n+def div(a, b):\n+    if b == 0:\n+        raise ZeroDivisionError(\"bで0は渡せない\")\n+    return a / b\ndiff --git a/src/user_service.py b/src/services.py\nsimilarity index 91%\nrename from src/user_service.py\nrename to src/services.py\nindex 8a51f82..3949ebb 100644\n--- a/src/user_service.py\n+++ b/src/services.py\n@@ -1,4 +1,4 @@\n-class UserService:\n+class UserService:  # renamed module\n     def __init__(self, repo):\n         self.repo = repo\n \n"
+}
