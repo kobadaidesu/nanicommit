@@ -30,7 +30,7 @@ var (
 func loadSchema(t *testing.T) map[string]any {
 	t.Helper()
 	schemaOnce.Do(func() {
-		data, err := os.ReadFile(filepath.Join("..", "..", "docs", "commit-payload.schema.json"))
+		data, err := os.ReadFile(filepath.Join("..", "..", "..", "docs", "commit-payload.schema.json"))
 		if err != nil {
 			schemaErr = err
 			return
@@ -76,7 +76,7 @@ func TestSchemaMatchesPayload(t *testing.T) {
 }
 
 func TestExamplesMatchSchema(t *testing.T) {
-	files, _ := filepath.Glob(filepath.Join("..", "..", "examples", "*.json"))
+	files, _ := filepath.Glob(filepath.Join("..", "..", "..", "examples", "*.json"))
 	if len(files) == 0 {
 		t.Fatal("no examples")
 	}
