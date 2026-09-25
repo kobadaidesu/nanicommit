@@ -49,6 +49,29 @@ Environment（環境変数）には `.env.example` の項目を登録します�
 デプロイ後、`https://<サービス名>.onrender.com/health` が `{"status":"ok"}` を返せば起動しています。
 Render の無料プランは、しばらくアクセスが無いと停止します。停止中の最初のリクエストは起動待ちで数十秒かかることがあります。
 
+### デプロイ後に変える設定
+
+フロントの本番 URL を `https://<フロント>`、バックの本番 URL を `https://<サービス名>.onrender.com` と書きます。
+
+フロントをデプロイしたら：
+
+| どこで | 項目 | 変更後の値 |
+|---|---|---|
+| Supabase → Authentication → URL Configuration | Site URL | `https://<フロント>` |
+| 同上 | Redirect URLs | `https://<フロント>/**` を追加（開発用の `http://localhost:5173/**` は残す） |
+| GitHub → Settings → Developer settings → OAuth Apps | Homepage URL | `https://<フロント>`（Authorization callback URL は Supabase のままで変えない） |
+| Render → Environment | `WEB_BASE_URL` | `https://<フロント>` |
+| 同上 | `CORS_ORIGINS` | `["https://<フロント>"]` |
+
+バックをデプロイしたら：
+
+| どこで | 項目 | 変更後の値 |
+|---|---|---|
+| フロントのホスティング先の環境変数 | バックエンドの URL | `https://<サービス名>.onrender.com` |
+| CLI（hooks）の設定 | バックエンドの URL | `https://<サービス名>.onrender.com` |
+
+バックの2つは、まだ設定する場所がありません（フロントは `src/data/api.ts` が仮実装、CLI には接続先の設定が無い）。実装されたら、その場所に入れてください。
+
 ## API（Aさん担当分）
 
 | メソッド | パス | 識別 | 内容 |
