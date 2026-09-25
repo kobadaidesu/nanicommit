@@ -14,7 +14,8 @@ git commit → post-commitフック（hooks/ のGo CLI） → 6項目のJSON →
 | [frontend/](frontend/) | 学習UI（React + Vite + TypeScript + Tailwind）。モックデータで動くUI先行実装 | UIモック実装済み（`cd frontend && npm install && npm run dev`） |
 | [docs/](docs/) | [commit-payload.schema.json](docs/commit-payload.schema.json) — hooks・frontend・バックエンドで共有する6項目JSONのスキーマ | — |
 | [examples/](examples/) | CLIが実際に生成したサンプルJSON | — |
-| backend/ | 問題生成・採点・push許可のバックエンド（Python + Supabase 予定） | 未実装 |
+| [backend/](backend/) | FastAPI。認証・リポジトリ登録・commit受信・push確認（問題取得・回答・MCP生成は未実装） | 一部実装（[backend/README.md](backend/README.md)） |
+| [supabase/](supabase/) | DBマイグレーション（[docs/design.md](docs/design.md) 7.2） | — |
 
 ## 6項目のJSON（コンポーネント間の契約）
 
