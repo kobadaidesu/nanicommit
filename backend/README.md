@@ -66,6 +66,32 @@ Render の無料プランは、しばらくアクセスが無いと停止しま�
 
 ## Bさん向け：差し込み方
 
+### 0. design.md に無いファイルについて
+
+design.md 8.5 のディレクトリ構成に無いファイルを、Aさん側で4つ追加しています。どれも MCP の処理は含みません。**Bさんが中身を書き換える必要はありません**（使うだけ）。
+
+```
+app/
+├── config.py            # 追加：環境変数の読み込み
+├── routers/
+│   └── common.py        # 追加：ルーター共通の小さな関数
+└── learning/
+    ├── errors.py        # 追加：問題生成の失敗の種類（例外）
+    ├── runner.py        # 追加：問題生成の呼び出し役
+    ├── mcp_client.py    # Bさん（未作成）
+    ├── generate.py      # Bさん（未作成）
+    └── grade.py         # Bさん（未作成）
+```
+
+| ファイル | なぜ必要か | Bさんとの関係 |
+|---|---|---|
+| `learning/runner.py` | commits.py が問題生成を呼ぶときの窓口です。① 環境変数 `QUIZ_GENERATOR` で「仮の生成（fake）」か「Bさんの generate.py（mcp）」かを切り替えます。② 30秒のタイムアウトを掛けます。③ 返ってきた3問の形を確認してから保存に回します。①があるので、generate.py が完成する前から commit 受信〜push 確認を試せます | **触らなくてよい**。generate.py に `generate_quiz` を作れば、`QUIZ_GENERATOR=mcp` のときに自動で呼ばれます |
+| `learning/errors.py` | 「根拠不足」「MCPに繋がらない」など、生成が失敗した理由を commits.py に伝える例外です。理由ごとに返す HTTP ステータス（422/502/503/504）が決まっています | generate.py で失敗したら、ここの例外を `raise` する |
+| `routers/common.py` | 「404 を返す」「問題ページの URL を作る」など、複数のルーターで使う小さな関数です | quizzes.py で `not_found()` を使える |
+| `config.py` | DB の接続文字列などを、コードに直接書かず環境変数から読みます | 設定値が必要なら `get_settings()` で読める |
+
+design.md の「generate.py：generate_quiz呼び出しと結果検証」のうち、形式の検証は `GeneratedQuiz.model_validate(結果)` の1行で済みます。runner.py でも同じ検証をもう一度行います（不正な問題を DB に入れないための保険）。
+
 ### 1. 問題生成：`app/learning/generate.py`
 
 `QUIZ_GENERATOR=mcp` のとき、commits.py は `app.learning.generate.generate_quiz` を呼びます。この名前・引数で作ってください。
@@ -146,7 +172,7 @@ async def get_quiz(quiz_id: UUID, user_id: WebUserId, conn: Conn):
 ### テストで生成を差し替える
 
 ```python
-from app.learning.generator import get_quiz_generator
+from app.learning.runner import get_quiz_generator
 
 client.app.dependency_overrides[get_quiz_generator] = lambda: my_fake_generate_quiz
 ```

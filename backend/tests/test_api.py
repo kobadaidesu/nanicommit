@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.learning.errors import InsufficientContext
-from app.learning.generator import fake_generate_quiz, get_quiz_generator
+from app.learning.runner import fake_generate_quiz, get_quiz_generator
 from tests.conftest import SHA1, SHA2, cli_headers, commit_body, make_user, register_repo
 
 

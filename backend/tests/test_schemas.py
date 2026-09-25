@@ -7,7 +7,7 @@ from pydantic import ValidationError
 
 from app.auth import parse_bearer, parse_user_id
 from app.learning.errors import GenerationTimeout, GenerationUnavailable, InsufficientContext, InvalidGeneratedQuiz
-from app.learning.generator import fake_generate_quiz, run_generation
+from app.learning.runner import fake_generate_quiz, run_generation
 from app.schemas import CommitIn, GeneratedQuiz, PushCheckIn
 
 REPO = "550e8400-e29b-41d4-a716-446655440000"

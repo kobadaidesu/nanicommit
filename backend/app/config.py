@@ -1,4 +1,8 @@
-"""環境変数から読む設定。値は .env.example を参照。"""
+"""環境変数から読む設定。値は .env.example を参照。
+
+design.md 8.5 には無い、Aさんが追加したファイルです。DB 接続文字列などを
+コードに直接書かないために、設定をここにまとめています。
+"""
 
 from functools import lru_cache
 from typing import Literal
@@ -18,9 +22,11 @@ class Settings(BaseSettings):
     supabase_url: str = ""
     supabase_anon_key: str = ""
 
-    # quiz_url の組み立てと CORS に使う Next.js の配信元。
+    # 問題画面（フロント）の URL。CLI が開く quiz_url の先頭部分になる。
     web_base_url: str = "http://localhost:3000"
-    cors_origins: list[str] = ["http://localhost:3000"]
+    # バックエンドを呼んでよいフロントの配信元。ブラウザはここに無いページからの呼び出しを止める。
+    # 開発中は Next.js（3000）と Vite（5173）のどちらでも動くよう両方許可しておく。
+    cors_origins: list[str] = ["http://localhost:3000", "http://localhost:5173"]
 
     # fake: 固定の3問を返す開発用生成器 / mcp: Bさんの app.learning.generate を使う。
     quiz_generator: Literal["fake", "mcp"] = "fake"

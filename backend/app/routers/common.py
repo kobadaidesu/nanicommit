@@ -1,4 +1,7 @@
-"""ルーター間で共有する小さな処理。"""
+"""ルーター間で共有する小さな処理（design.md 8.5 には無い、Aさんが追加したファイル）。
+
+Bさんの quizzes.py でも not_found() と quiz_url() を使えます。
+"""
 
 from uuid import UUID
 

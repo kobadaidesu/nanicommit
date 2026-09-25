@@ -20,7 +20,7 @@ from app.auth import CliUserId
 from app.config import Settings, get_settings
 from app.db import Conn
 from app.learning.errors import GenerationError
-from app.learning.generator import QuizGenerator, get_quiz_generator, run_generation
+from app.learning.runner import QuizGenerator, get_quiz_generator, run_generation
 from app.routers.common import ensure_repository_owner, quiz_url
 from app.schemas import MAX_DIFF_BYTES, MAX_FILES, QUESTION_COUNT, CommitIn, CommitOut
 

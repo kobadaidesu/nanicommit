@@ -1,10 +1,20 @@
-"""commits.py と問題生成処理（Bさん担当）のつなぎ目。
+"""問題生成の「呼び出し役」。commits.py はこのファイル経由でだけ問題生成を呼ぶ。
 
-Bさんへ：`app/learning/generate.py` に次の関数を作ると、`QUIZ_GENERATOR=mcp`
-のときに commits.py から呼ばれます。
+design.md 8.5 には無い、Aさんが追加したファイルです。役割は3つだけで、
+MCP には一切触れません（MCP 本体は Bさんの generate.py / mcp_client.py）。
+
+1. 切り替え：環境変数 QUIZ_GENERATOR で、どの生成関数を使うか選ぶ
+   - fake（既定）: 下の fake_generate_quiz。MCP Server 無しで commit の内容から機械的に3問作る。
+     Bさんの generate.py が完成する前でも、commit 受信〜問題画面〜push 確認を試せる。
+   - mcp: Bさんの app.learning.generate.generate_quiz を呼ぶ。
+2. 時間制限：生成全体に30秒（GENERATION_TIMEOUT_SECONDS）のタイムアウトを掛ける。
+3. 保険の検証：戻り値を GeneratedQuiz で検証し直し、壊れていれば 502 にする
+   （不正な問題が DB に入らないよう、保存する側でも確認する）。
+
+Bさんへ：`app/learning/generate.py` に次の関数を作れば、このファイルは触らなくて大丈夫です。
 
     # app/learning/generate.py
-    from app.schemas import GeneratedQuestion, GeneratedQuiz
+    from app.schemas import GeneratedQuiz
 
     async def generate_quiz(*, message: str, files: list[str], diff: str) -> GeneratedQuiz:
         # MCP Server の generate_quiz tool を呼び、結果を GeneratedQuiz にして返す。
@@ -13,13 +23,10 @@ Bさんへ：`app/learning/generate.py` に次の関数を作ると、`QUIZ_GENE
 
 - 引数は D1 で受け取った message・files・diff（除外処理済み）。user_id 等は渡しません。
 - 戻り値は `GeneratedQuiz`（3問）。`{"questions": [...]}` 形式の dict を返しても構いません。
-  こちらでも `GeneratedQuiz` で検証し直し、不正なら 502 にします。
-- タイムアウト（既定30秒、GENERATION_TIMEOUT_SECONDS）はこちらで掛けます。
-  MCP 呼び出し自体の20秒タイムアウトは generate.py 側で設定してください。
-- 問題の保存はこちらで行います。generate.py から DB を触る必要はありません。
-
-`QUIZ_GENERATOR=fake`（既定）のときは、下の FakeGenerator が固定の3問を返すので、
-MCP Server が無くても commit 受信〜問題画面〜push 確認を一通り試せます。
+  design.md の「結果検証」は `GeneratedQuiz.model_validate(結果)` の1行で済みます
+  （3問・選択肢4つで重複なし・correct_index 0〜3・空文字なし を確認する）。
+- MCP 呼び出し自体の20秒タイムアウトは generate.py 側で設定してください。
+- 問題の保存はこちら（commits.py）で行います。generate.py から DB を触る必要はありません。
 """
 
 import asyncio

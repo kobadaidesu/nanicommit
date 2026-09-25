@@ -968,15 +968,19 @@ nanicommit/
 ├── backend/
 │   └── app/
 │       ├── main.py
+│       ├── config.py       # A：環境変数の読み込み
 │       ├── auth.py         # A
 │       ├── db.py           # A
 │       ├── schemas.py      # 共通の契約
 │       ├── routers/
+│       │   ├── common.py        # A：404・quiz_urlなどルーター共通の関数
 │       │   ├── repositories.py  # A
 │       │   ├── commits.py       # A
 │       │   ├── push.py          # A
 │       │   └── quizzes.py       # B
 │       └── learning/
+│           ├── runner.py        # A：生成の呼び出し役（fake/mcpの切替・タイムアウト・保存前の検証）
+│           ├── errors.py        # A：生成失敗の例外とHTTPステータスの対応
 │           ├── mcp_client.py    # B：問題生成MCP Serverへの接続
 │           ├── generate.py     # B：generate_quiz呼び出しと結果検証
 │           └── grade.py        # B：回答採点・合格判定
