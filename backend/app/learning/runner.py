@@ -32,7 +32,7 @@ Bさんへ：`app/learning/generate.py` に次の関数を作れば、このフ�
 import asyncio
 import importlib
 import logging
-from typing import Any, Protocol
+from typing import Annotated, Any, Protocol
 
 from fastapi import Depends
 from pydantic import ValidationError
@@ -99,7 +99,7 @@ def _load_mcp_generator() -> QuizGenerator:
         raise GenerationUnavailable("app.learning.generate.generate_quiz is not available") from e
 
 
-def get_quiz_generator(settings: Settings = Depends(get_settings)) -> QuizGenerator:
+def get_quiz_generator(settings: Annotated[Settings, Depends(get_settings)]) -> QuizGenerator:
     """設定に応じた生成関数を返す FastAPI 依存関数。テストでは差し替える。"""
     if settings.quiz_generator == "mcp":
         return _load_mcp_generator()
@@ -125,7 +125,7 @@ async def run_generation(
         raise GenerationTimeout(f"generation exceeded {timeout}s") from e
     except GenerationError:
         raise
-    except Exception as e:  # noqa: BLE001 - 生成側の想定外の失敗は 503 にする
+    except Exception as e:  # 生成側の想定外の失敗は 503 にする
         logger.exception("quiz generator raised an unexpected error")
         raise GenerationUnavailable(str(e)) from e
 

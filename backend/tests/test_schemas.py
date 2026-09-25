@@ -6,7 +6,12 @@ import pytest
 from pydantic import ValidationError
 
 from app.auth import parse_bearer, parse_user_id
-from app.learning.errors import GenerationTimeout, GenerationUnavailable, InsufficientContext, InvalidGeneratedQuiz
+from app.learning.errors import (
+    GenerationTimeout,
+    GenerationUnavailable,
+    InsufficientContext,
+    InvalidGeneratedQuiz,
+)
 from app.learning.runner import fake_generate_quiz, run_generation
 from app.schemas import CommitIn, GeneratedQuiz, PushCheckIn
 

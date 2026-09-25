@@ -5,11 +5,17 @@ from uuid import uuid4
 
 import httpx
 import pytest
-from fastapi.testclient import TestClient
 
 from app.learning.errors import InsufficientContext
 from app.learning.runner import fake_generate_quiz, get_quiz_generator
-from tests.conftest import SHA1, SHA2, cli_headers, commit_body, make_user, register_repo
+from tests.conftest import (
+    SHA1,
+    SHA2,
+    cli_headers,
+    commit_body,
+    make_user,
+    register_repo,
+)
 
 
 def test_health(client):
@@ -113,6 +119,16 @@ def test_invalid_commit_is_422(client, user):
     repo_id = register_repo(client, user)
     r = client.post("/api/v1/commits", json=commit_body(repo_id, commit_sha="abc"), headers=cli_headers(user))
     assert r.status_code == 422
+
+
+def test_422_does_not_echo_the_request(client, user):
+    repo_id = register_repo(client, user)
+    body = commit_body(repo_id, diff="SECRET-DIFF-CONTENT")
+    del body["message"]
+    r = client.post("/api/v1/commits", json=body, headers=cli_headers(user))
+    assert r.status_code == 422
+    assert "SECRET-DIFF-CONTENT" not in r.text
+    assert r.json()["detail"][0]["loc"] == ["body", "message"]
 
 
 def test_generation_failure_saves_nothing(client, db, user):
@@ -253,3 +269,59 @@ def test_web_user_requires_valid_bearer(client, user):
     assert client.get("/whoami", headers={"Authorization": "Bearer bad"}).status_code == 401
     r = client.get("/whoami", headers={"Authorization": "Bearer good"})
     assert r.json() == {"user_id": str(user)}
+
+
+# ---- DB の commit はレスポンスより前 --------------------------------------------
+
+
+def test_repository_is_committed_before_response_is_sent(app_env, database_url, db, user):
+    """レスポンスを送り始めた時点で、別の接続から登録済みの行が見えること。
+
+    CLI は init の応答を受け取るとすぐ次の API を呼ぶので、commit が応答より
+    後だと、次の呼び出しで repository が見つからない（404）ことがある。
+    """
+    import json
+
+    import psycopg
+
+    from app.main import create_app, lifespan
+
+    seen_at_response_start: list[int] = []
+
+    async def scenario():
+        app = create_app()
+        body = json.dumps({"name": "r", "learning_base_sha": None}).encode()
+        scope = {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "http_version": "1.1",
+            "method": "POST",
+            "scheme": "http",
+            "path": "/api/v1/repositories",
+            "raw_path": b"/api/v1/repositories",
+            "query_string": b"",
+            "root_path": "",
+            "headers": [
+                (b"host", b"test"),
+                (b"content-type", b"application/json"),
+                (b"content-length", str(len(body)).encode()),
+                (b"x-user-id", str(user).encode()),
+            ],
+            "client": ("test", 1),
+            "server": ("test", 80),
+        }
+
+        async def receive():
+            return {"type": "http.request", "body": body, "more_body": False}
+
+        async def send(message):
+            if message["type"] == "http.response.start":
+                async with await psycopg.AsyncConnection.connect(database_url) as other:
+                    cur = await other.execute("select count(*) from public.repositories")
+                    seen_at_response_start.append((await cur.fetchone())[0])
+
+        async with lifespan(app):
+            await app(scope, receive, send)
+
+    asyncio.run(scenario())
+    assert seen_at_response_start == [1]

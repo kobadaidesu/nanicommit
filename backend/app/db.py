@@ -1,8 +1,8 @@
 """PostgreSQL 接続プール。
 
 Bさんへ：ルーターでは `conn: Conn` を引数に書くだけで接続を受け取れます。
-リクエストの終わりに接続はプールへ返され、例外がなければ commit、
-例外が出れば rollback されます（psycopg の `pool.connection()` の動作）。
+ルーター関数が終わった時点で（レスポンスを返す前に）、例外がなければ commit、
+例外が出れば rollback され、接続はプールへ返されます。
 
     from app.db import Conn
 
@@ -51,4 +51,7 @@ async def get_conn(request: Request) -> AsyncIterator[AsyncConnection[DictRow]]:
         yield conn
 
 
-Conn = Annotated[AsyncConnection[DictRow], Depends(get_conn)]
+# scope="function"：ルーター関数が終わった時点で commit して接続を返す。
+# 既定（"request"）だとレスポンスを送った後に commit されるため、クライアントが
+# 応答を受け取ってすぐ次の API を呼ぶと、まだ保存が見えないことがある。
+Conn = Annotated[AsyncConnection[DictRow], Depends(get_conn, scope="function")]

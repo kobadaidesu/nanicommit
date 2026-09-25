@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 
 import psycopg
 from fastapi import FastAPI, Request, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from psycopg_pool import PoolTimeout
@@ -53,6 +54,12 @@ def create_app() -> FastAPI:
         if length is not None and length.isdigit() and int(length) > settings.max_request_bytes:
             return JSONResponse({"detail": "Request too large"}, status.HTTP_413_CONTENT_TOO_LARGE)
         return await call_next(request)
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+        # 標準の 422 は受け取った値（差分全文など）を input に入れて返すので、場所と理由だけ返す。
+        errors = [{k: e[k] for k in ("type", "loc", "msg") if k in e} for e in exc.errors()]
+        return JSONResponse({"detail": errors}, status.HTTP_422_UNPROCESSABLE_CONTENT)
 
     @app.exception_handler(psycopg.OperationalError)
     @app.exception_handler(PoolTimeout)

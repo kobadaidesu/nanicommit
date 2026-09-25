@@ -25,7 +25,12 @@ from uuid import UUID
 import httpx
 from fastapi import Depends, Header, HTTPException, Request, status
 from supabase_auth import AsyncGoTrueClient
-from supabase_auth.errors import AuthApiError, AuthError, AuthRetryableError, AuthUnknownError
+from supabase_auth.errors import (
+    AuthApiError,
+    AuthError,
+    AuthRetryableError,
+    AuthUnknownError,
+)
 
 from app.config import Settings
 from app.db import Conn

@@ -10,7 +10,7 @@
 """
 
 import logging
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from psycopg import AsyncConnection
@@ -57,8 +57,8 @@ async def receive_commit(
     user_id: CliUserId,
     conn: Conn,
     response: Response,
-    generator: QuizGenerator = Depends(get_quiz_generator),
-    settings: Settings = Depends(get_settings),
+    generator: Annotated[QuizGenerator, Depends(get_quiz_generator)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> CommitOut:
     check_size_limits(body)
     await ensure_repository_owner(conn, body.repository_id, user_id)
