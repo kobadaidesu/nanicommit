@@ -25,6 +25,30 @@ uv run pytest
 
 DB を使うテストは、`TEST_DATABASE_URL`（Postgres の管理用接続文字列）があればそれを使い、無ければ dev 依存の `pgserver` で一時的な Postgres を起動します。どちらの場合も `nanicommit_test` というデータベースを作り直し、Supabase の `auth.users` と `anon` / `authenticated` ロールの代わりを作ってからマイグレーションを適用します。
 
+## Render へのデプロイ
+
+Docker は使わず、Render の Python ランタイムで動かします。Render のダッシュボードで New → Web Service を選び、このリポジトリを指定して次のように設定します。
+
+| 項目 | 値 |
+|---|---|
+| Language | Python 3 |
+| Root Directory | `backend` |
+| Build Command | `pip install uv && uv sync --frozen --no-dev` |
+| Start Command | `uv run --no-dev uvicorn app.main:app --host 0.0.0.0 --port $PORT` |
+| Health Check Path | `/health` |
+
+Environment（環境変数）には `.env.example` の項目を登録します。値は Git に入れず、Render の画面にだけ入れてください。
+
+- `DATABASE_URL`：Supabase の Connect → Session pooler の接続文字列
+- `SUPABASE_URL` / `SUPABASE_ANON_KEY`：Supabase の Project Settings → API
+- `WEB_BASE_URL`：フロントの本番 URL（例 `https://nanicommit.vercel.app`）
+- `CORS_ORIGINS`：`["<フロントの本番 URL>"]`（JSON の配列で書く）
+- `QUIZ_GENERATOR`：MCP ができるまでは `fake`
+- `PYTHON_VERSION`：`3.12`（`.python-version` と同じ。念のため指定）
+
+デプロイ後、`https://<サービス名>.onrender.com/health` が `{"status":"ok"}` を返せば起動しています。
+Render の無料プランは、しばらくアクセスが無いと停止します。停止中の最初のリクエストは起動待ちで数十秒かかることがあります。
+
 ## API（Aさん担当分）
 
 | メソッド | パス | 識別 | 内容 |
