@@ -23,8 +23,15 @@ import (
 	"github.com/kobadaidesu/hook-test/internal/gitrepo"
 )
 
-// HookName is the only hook commitcoach installs.
-const HookName = "post-commit"
+// HookName is the snapshot hook; PrePushHookName gates pushes until every
+// commit being pushed has passed its quiz.
+const (
+	HookName        = "post-commit"
+	PrePushHookName = "pre-push"
+)
+
+// ManagedHooks lists every hook commitcoach installs, in install order.
+var ManagedHooks = []string{HookName, PrePushHookName}
 
 const (
 	markerLine = "# commitcoach-managed-hook: v1"
@@ -34,12 +41,35 @@ const (
 	maxHookBytes = 1 << 20
 )
 
-// Script returns the hook script that runs exe, an absolute path.
-func Script(exe string) []byte {
+// Script returns the post-commit hook script that runs exe, an absolute path.
+func Script(exe string) []byte { return ScriptFor(HookName, exe) }
+
+// ScriptFor returns the script of one managed hook. The post-commit script
+// never blocks the commit; the pre-push script blocks the push when the
+// check fails or the binary is missing (a non-zero exit aborts the push).
+func ScriptFor(name, exe string) []byte {
 	var b strings.Builder
 	b.WriteString("#!/bin/sh\n")
 	b.WriteString(markerLine + "\n")
 	b.WriteString(exePrefix + strconv.Quote(exe) + "\n")
+	if name == PrePushHookName {
+		b.WriteString(`#
+# Created by "commitcoach init". Remove it with "commitcoach uninstall".
+# If you edit this file, commitcoach will no longer update or remove it.
+#
+# This hook asks the learning backend whether every commit being pushed has
+# passed its quiz. A non-zero exit makes git abort the push.
+`)
+		b.WriteString("commitcoach_bin=" + shellQuote(exe) + "\n")
+		b.WriteString(`if [ -x "$commitcoach_bin" ]; then
+	exec "$commitcoach_bin" hook pre-push "$@"
+fi
+printf 'commitcoach: the push was blocked because the commitcoach executable is missing: %s\n' "$commitcoach_bin" >&2
+printf 'commitcoach: build or install it again and rerun "commitcoach init", or delete this hook: %s\n' "$0" >&2
+exit 1
+`)
+		return []byte(b.String())
+	}
 	b.WriteString(`#
 # Created by "commitcoach init". Remove it with "commitcoach uninstall".
 # If you edit this file, commitcoach will no longer update or remove it.
@@ -62,7 +92,13 @@ exit 0
 
 // ManualLine is a shell line that users can add to their own post-commit
 // hook to call commitcoach.
-func ManualLine(exe string) string {
+func ManualLine(exe string) string { return ManualLineFor(HookName, exe) }
+
+// ManualLineFor is ManualLine for any managed hook.
+func ManualLineFor(name, exe string) string {
+	if name == PrePushHookName {
+		return shellQuote(exe) + ` hook pre-push "$@" || exit 1`
+	}
 	return shellQuote(exe) + ` hook post-commit || echo 'commitcoach: warning: the commit was created, but its snapshot was not recorded' >&2`
 }
 
@@ -82,7 +118,7 @@ const (
 	Foreign      State = "foreign"       // not written by commitcoach
 )
 
-// HookFile describes one post-commit hook file.
+// HookFile describes one managed hook file.
 type HookFile struct {
 	Path  string
 	State State
@@ -90,11 +126,11 @@ type HookFile struct {
 	Executable string
 	Mode       fs.FileMode
 	// CallsCommitcoach reports that a foreign hook appears to call
-	// "commitcoach hook post-commit" (manual integration).
+	// "commitcoach hook <name>" (manual integration).
 	CallsCommitcoach bool
 }
 
-func inspectFile(path string) (HookFile, error) {
+func inspectFile(name, path string) (HookFile, error) {
 	h := HookFile{Path: path, State: NotInstalled}
 	fi, err := os.Lstat(path) // never follow a symlink: it is someone else's setup
 	if errors.Is(err, fs.ErrNotExist) {
@@ -112,12 +148,12 @@ func inspectFile(path string) (HookFile, error) {
 	if err != nil {
 		return h, err
 	}
-	h.State, h.Executable = classify(data)
-	h.CallsCommitcoach = h.State == Foreign && bytes.Contains(data, []byte("hook post-commit")) && bytes.Contains(data, []byte("commitcoach"))
+	h.State, h.Executable = classify(name, data)
+	h.CallsCommitcoach = h.State == Foreign && bytes.Contains(data, []byte("hook "+name)) && bytes.Contains(data, []byte("commitcoach"))
 	return h, nil
 }
 
-func classify(data []byte) (State, string) {
+func classify(name string, data []byte) (State, string) {
 	if !bytes.Contains(data, []byte("\n"+markerLine+"\n")) {
 		return Foreign, ""
 	}
@@ -125,7 +161,7 @@ func classify(data []byte) (State, string) {
 	if !ok {
 		return Modified, ""
 	}
-	if !bytes.Equal(data, Script(exe)) {
+	if !bytes.Equal(data, ScriptFor(name, exe)) {
 		return Modified, exe
 	}
 	return Installed, exe
@@ -153,15 +189,22 @@ type Status struct {
 	EffectiveHooksDir string
 	// HooksPath lists every core.hooksPath setting, from any scope.
 	HooksPath []gitrepo.ConfigValue
-	// Hook is <HooksDir>/post-commit.
+	// Name is the hook this status describes (post-commit or pre-push).
+	Name string
+	// Hook is <HooksDir>/<Name>.
 	Hook HookFile
-	// EffectiveHook is <EffectiveHooksDir>/post-commit when that is a
+	// EffectiveHook is <EffectiveHooksDir>/<Name> when that is a
 	// different directory; nil otherwise.
 	EffectiveHook *HookFile
 }
 
-// Inspect reads the hook setup without changing anything.
+// Inspect reads the post-commit hook setup without changing anything.
 func Inspect(ctx context.Context, repo *gitrepo.Repo) (*Status, error) {
+	return InspectHook(ctx, repo, HookName)
+}
+
+// InspectHook is Inspect for any managed hook.
+func InspectHook(ctx context.Context, repo *gitrepo.Repo, name string) (*Status, error) {
 	hooksPath, err := repo.ConfigValues(ctx, "core.hooksPath")
 	if err != nil {
 		return nil, fmt.Errorf("reading core.hooksPath: %w", err)
@@ -174,12 +217,13 @@ func Inspect(ctx context.Context, repo *gitrepo.Repo) (*Status, error) {
 		HooksDir:          filepath.Join(repo.CommonDir, "hooks"),
 		EffectiveHooksDir: effective,
 		HooksPath:         hooksPath,
+		Name:              name,
 	}
-	if st.Hook, err = inspectFile(filepath.Join(st.HooksDir, HookName)); err != nil {
+	if st.Hook, err = inspectFile(name, filepath.Join(st.HooksDir, name)); err != nil {
 		return nil, err
 	}
 	if !sameDir(st.HooksDir, effective) {
-		h, err := inspectFile(filepath.Join(effective, HookName))
+		h, err := inspectFile(name, filepath.Join(effective, name))
 		if err != nil {
 			return nil, err
 		}
@@ -228,14 +272,19 @@ type Result struct {
 	PreviousExecutable string
 }
 
-var errHookAppeared = errors.New("a post-commit hook appeared while installing; it was left unchanged")
+var errHookAppeared = errors.New("a hook file appeared while installing; it was left unchanged")
 
 // Install writes the post-commit hook that runs exe (an absolute path).
 // Running it again is harmless. It returns a *ConflictError, without changing
 // anything, when core.hooksPath is set or another post-commit hook exists.
 func Install(ctx context.Context, repo *gitrepo.Repo, exe string) (*Result, error) {
+	return InstallHook(ctx, repo, exe, HookName)
+}
+
+// InstallHook is Install for any managed hook.
+func InstallHook(ctx context.Context, repo *gitrepo.Repo, exe, name string) (*Result, error) {
 	if repo.Bare {
-		return nil, errors.New("this is a bare repository: it has no working tree, so git commit and the post-commit hook never run in it")
+		return nil, errors.New("this is a bare repository: it has no working tree, so git hooks never run in it")
 	}
 	if repo.WorkTree == "" {
 		return nil, errors.New("run commitcoach init from the working tree of the repository, not from inside its git directory")
@@ -246,7 +295,7 @@ func Install(ctx context.Context, repo *gitrepo.Repo, exe string) (*Result, erro
 	if fi, err := os.Stat(exe); err != nil || !fi.Mode().IsRegular() || fi.Mode()&0o111 == 0 {
 		return nil, fmt.Errorf("%s is not an executable file", exe)
 	}
-	st, err := Inspect(ctx, repo)
+	st, err := InspectHook(ctx, repo, name)
 	if err != nil {
 		return nil, err
 	}
@@ -254,8 +303,8 @@ func Install(ctx context.Context, repo *gitrepo.Repo, exe string) (*Result, erro
 	if len(st.HooksPath) > 0 {
 		c := &ConflictError{
 			Reason:   "core.hooksPath is set, so Git runs hooks from " + st.EffectiveHooksDir + " instead of " + st.HooksDir + "; commitcoach does not change this setting or that directory",
-			HookFile: filepath.Join(st.EffectiveHooksDir, HookName),
-			Line:     ManualLine(exe),
+			HookFile: filepath.Join(st.EffectiveHooksDir, name),
+			Line:     ManualLineFor(name, exe),
 		}
 		for _, v := range st.HooksPath {
 			c.Details = append(c.Details, fmt.Sprintf("core.hooksPath = %s (%s scope, %s)", v.Value, v.Scope, v.Origin))
@@ -272,9 +321,9 @@ func Install(ctx context.Context, repo *gitrepo.Repo, exe string) (*Result, erro
 		if err := os.MkdirAll(st.HooksDir, 0o755); err != nil {
 			return nil, err
 		}
-		if err := createHook(h.Path, Script(exe)); err != nil {
+		if err := createHook(h.Path, ScriptFor(name, exe)); err != nil {
 			if errors.Is(err, errHookAppeared) {
-				return nil, &ConflictError{Reason: err.Error(), HookFile: h.Path, Line: ManualLine(exe)}
+				return nil, &ConflictError{Reason: err.Error(), HookFile: h.Path, Line: ManualLineFor(name, exe)}
 			}
 			return nil, fmt.Errorf("writing %s: %w", h.Path, err)
 		}
@@ -289,22 +338,22 @@ func Install(ctx context.Context, repo *gitrepo.Repo, exe string) (*Result, erro
 			}
 			return &Result{Action: Unchanged, HookFile: h.Path}, nil
 		}
-		if err := replaceHook(h.Path, Script(exe)); err != nil {
+		if err := replaceHook(h.Path, ScriptFor(name, exe)); err != nil {
 			return nil, fmt.Errorf("writing %s: %w", h.Path, err)
 		}
 		return &Result{Action: Updated, HookFile: h.Path, PreviousExecutable: h.Executable}, nil
 
 	case Modified:
 		return nil, &ConflictError{
-			Reason:   "the post-commit hook was created by commitcoach but has been edited since; it was left unchanged",
+			Reason:   "the " + name + " hook was created by commitcoach but has been edited since; it was left unchanged",
 			HookFile: h.Path,
-			Line:     ManualLine(exe),
+			Line:     ManualLineFor(name, exe),
 		}
 	default:
 		return nil, &ConflictError{
-			Reason:   "a post-commit hook that was not created by commitcoach already exists; it was left unchanged",
+			Reason:   "a " + name + " hook that was not created by commitcoach already exists; it was left unchanged",
 			HookFile: h.Path,
-			Line:     ManualLine(exe),
+			Line:     ManualLineFor(name, exe),
 		}
 	}
 }
@@ -314,7 +363,7 @@ func Install(ctx context.Context, repo *gitrepo.Repo, exe string) (*Result, erro
 // which fails if the name exists. Where hard links are not supported, an
 // exclusive create is used instead.
 func createHook(path string, content []byte) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".commitcoach-"+HookName+"-*")
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".commitcoach-"+filepath.Base(path)+"-*")
 	if err != nil {
 		return err
 	}
@@ -345,7 +394,7 @@ func createHook(path string, content []byte) error {
 
 // replaceHook atomically replaces a hook file that commitcoach wrote.
 func replaceHook(path string, content []byte) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".commitcoach-"+HookName+"-*")
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".commitcoach-"+filepath.Base(path)+"-*")
 	if err != nil {
 		return err
 	}
@@ -382,7 +431,12 @@ func (e *ModifiedHookError) Error() string {
 // Uninstall removes the post-commit hook if, and only if, commitcoach wrote
 // it and it is unchanged. Snapshots are kept.
 func Uninstall(ctx context.Context, repo *gitrepo.Repo) (*Result, error) {
-	st, err := Inspect(ctx, repo)
+	return UninstallHook(ctx, repo, HookName)
+}
+
+// UninstallHook is Uninstall for any managed hook.
+func UninstallHook(ctx context.Context, repo *gitrepo.Repo, name string) (*Result, error) {
+	st, err := InspectHook(ctx, repo, name)
 	if err != nil {
 		return nil, err
 	}
