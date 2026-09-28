@@ -8,7 +8,9 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 
+	"github.com/kobadaidesu/hook-test/internal/backend"
 	"github.com/kobadaidesu/hook-test/internal/gitrepo"
 	"github.com/kobadaidesu/hook-test/internal/hooks"
 	"github.com/kobadaidesu/hook-test/internal/repoid"
@@ -16,12 +18,33 @@ import (
 )
 
 func runInit(args []string, stdout, stderr io.Writer) int {
-	fs := newFlagSet("init [--repository-id UUID]", "Install a post-commit hook in the current repository that runs this commitcoach binary,\n"+
-		"and save the repository ID in the local git config ("+repoid.ConfigKey+").\n"+
-		"Nothing is changed if core.hooksPath is set or another post-commit hook exists.", stderr)
+	fs := newFlagSet("init [--repository-id UUID] [--backend-url URL --user-id UUID]",
+		"Install the post-commit and pre-push hooks in the current repository that run this commitcoach binary,\n"+
+			"and save the repository ID in the local git config ("+repoid.ConfigKey+").\n"+
+			"With --backend-url and --user-id the backend settings are saved too, and every commit is sent\n"+
+			"to the backend for a quiz; the pre-push hook then blocks pushes until the quizzes are passed.\n"+
+			"Nothing is changed if core.hooksPath is set or a hook that is not commitcoach's exists.", stderr)
 	flagID := fs.String("repository-id", "", "UUID of this repository in the backend (required unless already saved)")
+	flagURL := fs.String("backend-url", "", "base URL of the learning backend, e.g. http://localhost:8100 (saved as "+backend.ConfigKeyURL+")")
+	flagUser := fs.String("user-id", "", "UUID of the user in the backend (saved as "+backend.ConfigKeyUser+")")
 	if code, ok := parseFlags(fs, args); !ok {
 		return code
+	}
+	if (*flagURL == "") != (*flagUser == "") {
+		fmt.Fprintln(stderr, "commitcoach init: --backend-url and --user-id must be given together")
+		return exitUsage
+	}
+	if *flagURL != "" && !strings.HasPrefix(*flagURL, "http://") && !strings.HasPrefix(*flagURL, "https://") {
+		fmt.Fprintf(stderr, "commitcoach init: --backend-url %q must start with http:// or https://\n", *flagURL)
+		return exitUsage
+	}
+	normalizedUser := ""
+	if *flagUser != "" {
+		var err error
+		if normalizedUser, err = repoid.Normalize(*flagUser); err != nil {
+			fmt.Fprintf(stderr, "commitcoach init: --user-id: %v\n", err)
+			return exitUsage
+		}
 	}
 	exe, err := installableExecutable()
 	if err != nil {
@@ -40,36 +63,50 @@ func runInit(args []string, stdout, stderr io.Writer) int {
 	}
 	saved, _ := repoid.Load(ctx, repo) // "" when not set (or not valid)
 
-	res, err := hooks.Install(ctx, repo, exe)
-	var conflict *hooks.ConflictError
-	if errors.As(err, &conflict) {
-		fmt.Fprintf(stderr, "commitcoach: not installed: %s.\n", conflict.Reason)
-		for _, d := range conflict.Details {
-			fmt.Fprintf(stderr, "  %s\n", d)
+	for _, name := range hooks.ManagedHooks {
+		res, err := hooks.InstallHook(ctx, repo, exe, name)
+		var conflict *hooks.ConflictError
+		if errors.As(err, &conflict) {
+			fmt.Fprintf(stderr, "commitcoach: the %s hook was not installed: %s.\n", name, conflict.Reason)
+			for _, d := range conflict.Details {
+				fmt.Fprintf(stderr, "  %s\n", d)
+			}
+			fmt.Fprintf(stderr, "No file or setting was changed.\n\n"+
+				"To run commitcoach from your own hook, add this line to %s\n"+
+				"(create the file with \"#!/bin/sh\" as its first line and make it executable if it does not exist):\n\n    %s\n",
+				conflict.HookFile, conflict.Line)
+			if id != saved {
+				fmt.Fprintf(stderr, "\nand save the repository ID:\n\n    git config --local %s %s\n", repoid.ConfigKey, id)
+			}
+			return exitError
 		}
-		fmt.Fprintf(stderr, "No file or setting was changed.\n\n"+
-			"To run commitcoach from your own hook, add this line to %s\n"+
-			"(create the file with \"#!/bin/sh\" as its first line and make it executable if it does not exist):\n\n    %s\n",
-			conflict.HookFile, conflict.Line)
-		if id != saved {
-			fmt.Fprintf(stderr, "\nand save the repository ID:\n\n    git config --local %s %s\n", repoid.ConfigKey, id)
+		if err != nil {
+			return fail(stderr, err)
 		}
-		return exitError
+		switch res.Action {
+		case hooks.Created:
+			fmt.Fprintf(stdout, "commitcoach: installed the %s hook: %s\n", name, res.HookFile)
+		case hooks.Updated:
+			fmt.Fprintf(stdout, "commitcoach: updated the %s hook: %s\n  previous executable: %s\n", name, res.HookFile, res.PreviousExecutable)
+		case hooks.Unchanged:
+			fmt.Fprintf(stdout, "commitcoach: the %s hook is already installed: %s\n", name, res.HookFile)
+		}
+		fmt.Fprintf(stdout, "  runs:      %s hook %s\n", exe, name)
 	}
-	if err != nil {
-		return fail(stderr, err)
-	}
-
-	switch res.Action {
-	case hooks.Created:
-		fmt.Fprintf(stdout, "commitcoach: installed the post-commit hook: %s\n", res.HookFile)
-	case hooks.Updated:
-		fmt.Fprintf(stdout, "commitcoach: updated the post-commit hook: %s\n  previous executable: %s\n", res.HookFile, res.PreviousExecutable)
-	case hooks.Unchanged:
-		fmt.Fprintf(stdout, "commitcoach: the post-commit hook is already installed: %s\n", res.HookFile)
-	}
-	fmt.Fprintf(stdout, "  runs:      %s hook post-commit\n", exe)
 	fmt.Fprintf(stdout, "  snapshots: %s\n", storage.EventsDir(repo.CommonDir))
+	if *flagURL != "" {
+		if err := repo.SetLocalConfig(ctx, backend.ConfigKeyURL, *flagURL); err != nil {
+			return fail(stderr, err)
+		}
+		if err := repo.SetLocalConfig(ctx, backend.ConfigKeyUser, normalizedUser); err != nil {
+			return fail(stderr, err)
+		}
+		fmt.Fprintf(stdout, "  backend:   %s (saved as %s)\n", *flagURL, backend.ConfigKeyURL)
+		fmt.Fprintf(stdout, "  user id:   %s (saved as %s)\n", normalizedUser, backend.ConfigKeyUser)
+	} else if _, err := backend.LoadConfig(ctx, repo); errors.Is(err, backend.ErrNotConfigured) {
+		fmt.Fprintln(stdout, "  backend:   not configured; commits are recorded locally only and pushes are not checked")
+		fmt.Fprintln(stdout, "             (configure it with: commitcoach init --backend-url <URL> --user-id <UUID>)")
+	}
 	if id != saved {
 		if err := repoid.Save(ctx, repo, id); err != nil {
 			return fail(stderr, fmt.Errorf("the hook is installed, but %w; run init again", err))
@@ -111,7 +148,7 @@ func isGoRunBinary(exe string) bool {
 }
 
 func runUninstall(args []string, stdout, stderr io.Writer) int {
-	fs := newFlagSet("uninstall", "Remove the post-commit hook if commitcoach installed it and it has not been edited.\n"+
+	fs := newFlagSet("uninstall", "Remove the post-commit and pre-push hooks if commitcoach installed them and they have not been edited.\n"+
 		"Other hooks and settings are never touched, and recorded snapshots are kept.", stderr)
 	if code, ok := parseFlags(fs, args); !ok {
 		return code
@@ -122,22 +159,29 @@ func runUninstall(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err)
 	}
-	res, err := hooks.Uninstall(ctx, repo)
-	var modified *hooks.ModifiedHookError
-	if errors.As(err, &modified) {
-		fmt.Fprintf(stderr, "commitcoach: warning: %v\n", err)
-		return exitError
+	code := exitOK
+	for _, name := range hooks.ManagedHooks {
+		res, err := hooks.UninstallHook(ctx, repo, name)
+		var modified *hooks.ModifiedHookError
+		if errors.As(err, &modified) {
+			fmt.Fprintf(stderr, "commitcoach: warning: %v\n", err)
+			code = exitError
+			continue
+		}
+		if err != nil {
+			return fail(stderr, err)
+		}
+		switch res.Action {
+		case hooks.Removed:
+			fmt.Fprintf(stdout, "commitcoach: removed the %s hook: %s\n", name, res.HookFile)
+		case hooks.Absent:
+			fmt.Fprintf(stdout, "commitcoach: no %s hook is installed (%s does not exist); nothing to do\n", name, res.HookFile)
+		case hooks.LeftAlone:
+			fmt.Fprintf(stdout, "commitcoach: %s was not created by commitcoach; it was left unchanged\n", res.HookFile)
+		}
 	}
-	if err != nil {
-		return fail(stderr, err)
-	}
-	switch res.Action {
-	case hooks.Removed:
-		fmt.Fprintf(stdout, "commitcoach: removed the post-commit hook: %s\n", res.HookFile)
-	case hooks.Absent:
-		fmt.Fprintf(stdout, "commitcoach: no post-commit hook is installed (%s does not exist); nothing to do\n", res.HookFile)
-	case hooks.LeftAlone:
-		fmt.Fprintf(stdout, "commitcoach: %s was not created by commitcoach; it was left unchanged\n", res.HookFile)
+	if code != exitOK {
+		return code
 	}
 	if n, err := storage.CountEvents(repo.CommonDir); err == nil && n > 0 {
 		fmt.Fprintf(stdout, "  %d snapshot(s) were kept in %s; delete that directory yourself if you no longer need them\n",
@@ -187,6 +231,13 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 	} else {
 		out("repository id", "INVALID: %v", err)
 	}
+	if cfg, err := backend.LoadConfig(ctx, repo); err == nil {
+		out("backend", "%s (as user %s)", cfg.BaseURL, cfg.UserID)
+	} else if errors.Is(err, backend.ErrNotConfigured) {
+		out("backend", "not configured (commits are recorded locally only; pushes are not checked)")
+	} else {
+		out("backend", "INVALID: %v", err)
+	}
 
 	if len(st.HooksPath) > 0 {
 		out("hooks directory", "%s (set by core.hooksPath)", st.EffectiveHooksDir)
@@ -210,6 +261,24 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 	}
 	if h.Executable != "" {
 		out("  executable", "%s (%s)", h.Executable, describeExecutable(h.Executable, self))
+	}
+
+	pst, err := hooks.InspectHook(ctx, repo, hooks.PrePushHookName)
+	if err != nil {
+		return fail(stderr, err)
+	}
+	switch ph := pst.Hook; ph.State {
+	case hooks.NotInstalled:
+		out("pre-push hook", "not installed (run \"commitcoach init\"; pushes are not checked)")
+	case hooks.Installed:
+		out("pre-push hook", "installed by commitcoach, unmodified")
+	case hooks.Modified:
+		out("pre-push hook", "created by commitcoach but edited since (init and uninstall leave it alone)")
+	case hooks.Foreign:
+		out("pre-push hook", "exists but was not created by commitcoach")
+	}
+	if pst.Hook.State != hooks.NotInstalled {
+		out("  hook file", "%s", pst.Hook.Path)
 	}
 
 	out("snapshots", "%s", describeEvents(repo.CommonDir))

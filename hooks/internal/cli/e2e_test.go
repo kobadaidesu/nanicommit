@@ -587,10 +587,14 @@ func TestHookCommandOutput(t *testing.T) {
 		t.Fatalf("hook: %+v", res)
 	}
 	readPayload(t, r, head)
-	for _, args := range [][]string{{"hook"}, {"hook", "pre-push"}, {}, {"nope"}} {
+	for _, args := range [][]string{{"hook"}, {"hook", "nope"}, {}, {"nope"}} {
 		if res := cc(t, r, "", args...); res.code != 2 {
 			t.Errorf("%v: code %d", args, res.code)
 		}
+	}
+	// pre-push with nothing on stdin pushes no commits, so it allows.
+	if res := cc(t, r, "", "hook", "pre-push", "origin", "git@example.com:x.git"); res.code != 0 {
+		t.Errorf("hook pre-push with no refs: %+v", res)
 	}
 	if res := cc(t, r, "", "help"); res.code != 0 || !strings.Contains(res.stdout, "commitcoach init") {
 		t.Errorf("help: %+v", res)

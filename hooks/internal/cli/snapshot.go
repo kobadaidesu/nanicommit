@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 
+	"github.com/kobadaidesu/hook-test/internal/backend"
 	"github.com/kobadaidesu/hook-test/internal/event"
 	"github.com/kobadaidesu/hook-test/internal/gitrepo"
 	"github.com/kobadaidesu/hook-test/internal/repoid"
@@ -95,11 +97,17 @@ func runExport(args []string, stdout, stderr io.Writer) int {
 }
 
 func runHook(args []string, stderr io.Writer) int {
-	if len(args) == 0 || args[0] != "post-commit" {
-		fmt.Fprintln(stderr, "Usage: commitcoach hook post-commit\n\nRun by the post-commit hook that \"commitcoach init\" installs; only post-commit is supported.")
+	if len(args) == 0 || (args[0] != "post-commit" && args[0] != "pre-push") {
+		fmt.Fprintln(stderr, "Usage: commitcoach hook {post-commit|pre-push}\n\nRun by the hooks that \"commitcoach init\" installs.")
 		return exitUsage
 	}
-	fs := newFlagSet("hook post-commit", "Record the JSON of HEAD in the git directory. Run by the post-commit hook.", stderr)
+	if args[0] == "pre-push" {
+		// Git passes the remote name and URL as arguments and the refs on
+		// stdin; the arguments are not needed for the check.
+		return runHookPrePush(args[1:], os.Stdin, stderr)
+	}
+	fs := newFlagSet("hook post-commit", "Record the JSON of HEAD in the git directory, then send it to the learning backend\n"+
+		"when one is configured. Run by the post-commit hook.", stderr)
 	timeout := fs.Duration("timeout", defaultHookTimeout, "give up after this long")
 	if code, ok := parseFlags(fs, args[1:]); !ok {
 		return code
@@ -107,7 +115,7 @@ func runHook(args []string, stderr io.Writer) int {
 
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
-	oid, path, notes, err := recordHead(ctx)
+	repo, oid, data, path, notes, err := recordHead(ctx)
 	if err != nil {
 		// The commit exists regardless; say so, so nobody retries it.
 		fmt.Fprintf(stderr, "commitcoach: error: the commit was created, but its snapshot could not be recorded: %v\n", explain(err))
@@ -115,32 +123,55 @@ func runHook(args []string, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stderr, "commitcoach: recorded the snapshot of %s in %s\n", oid, path)
 	printNotes(stderr, notes)
+	sendRecorded(ctx, repo, oid, data, stderr)
 	return exitOK
+}
+
+// sendRecorded sends a freshly recorded commit to the backend. Failures
+// only warn: the snapshot is saved, so the commit can be resent later, and
+// a backend outage must never make committing feel broken.
+func sendRecorded(ctx context.Context, repo *gitrepo.Repo, oid string, data []byte, stderr io.Writer) {
+	cfg, err := backend.LoadConfig(ctx, repo)
+	if errors.Is(err, backend.ErrNotConfigured) {
+		return // recording-only setup; nothing to send to
+	}
+	if err != nil {
+		fmt.Fprintf(stderr, "commitcoach: warning: %v\n", err)
+		return
+	}
+	fmt.Fprintf(stderr, "commitcoach: sending %s to %s and waiting for its quiz ...\n", short(oid), cfg.BaseURL)
+	res, err := backend.New(cfg).SendCommit(ctx, data)
+	if err != nil {
+		fmt.Fprintf(stderr, "commitcoach: warning: the commit was recorded, but not sent: %v\n", err)
+		fmt.Fprintf(stderr, "commitcoach: resend it later with: commitcoach send --commit %s\n", short(oid))
+		return
+	}
+	printQuiz(stderr, oid, res)
 }
 
 // recordHead resolves HEAD once, at the start, and from then on only uses
 // that object name, so later changes to HEAD cannot mix into the payload.
-func recordHead(ctx context.Context) (oid, path string, notes []string, err error) {
-	repo, err := gitrepo.Open(ctx, "")
+func recordHead(ctx context.Context) (repo *gitrepo.Repo, oid string, data []byte, path string, notes []string, err error) {
+	repo, err = gitrepo.Open(ctx, "")
 	if err != nil {
-		return "", "", nil, err
+		return nil, "", nil, "", nil, err
 	}
 	if repo.Bare {
-		return "", "", nil, errors.New("this is a bare repository; the post-commit hook is not supported here")
+		return nil, "", nil, "", nil, errors.New("this is a bare repository; the post-commit hook is not supported here")
 	}
 	if oid, err = repo.ResolveCommit(ctx, "HEAD"); err != nil {
-		return "", "", nil, err
+		return repo, "", nil, "", nil, err
 	}
 	id, err := repoid.Load(ctx, repo)
 	if err != nil {
-		return oid, "", nil, err
+		return repo, oid, nil, "", nil, err
 	}
-	data, notes, err := buildPayload(ctx, repo, oid, id)
+	data, notes, err = buildPayload(ctx, repo, oid, id)
 	if err != nil {
-		return oid, "", nil, err
+		return repo, oid, nil, "", nil, err
 	}
 	if path, err = storage.SaveEvent(repo.CommonDir, oid, data); err != nil {
-		return oid, "", nil, fmt.Errorf("saving the snapshot: %w", err)
+		return repo, oid, data, "", nil, fmt.Errorf("saving the snapshot: %w", err)
 	}
-	return oid, path, notes, nil
+	return repo, oid, data, path, notes, nil
 }

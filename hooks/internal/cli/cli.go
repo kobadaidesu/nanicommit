@@ -29,14 +29,19 @@ const (
 const usageText = `commitcoach turns Git commits into JSON for the learning backend.
 
 Usage:
-  commitcoach init --repository-id UUID
-                                    install the post-commit hook in this repository
-                                    and save its repository ID
+  commitcoach init --repository-id UUID [--backend-url URL --user-id UUID]
+                                    install the post-commit and pre-push hooks in this
+                                    repository and save its repository ID (and, when
+                                    given, the backend URL and user ID)
   commitcoach status                show the hook and snapshot setup of this repository
-  commitcoach uninstall             remove the hook that commitcoach installed
+  commitcoach uninstall             remove the hooks that commitcoach installed
+  commitcoach send [--commit REV]   send the JSON of a commit (default HEAD) to the
+                                    backend and print its quiz URL
   commitcoach export [--commit REV] [--output PATH|-] [--repository-id UUID]
                                     write the JSON of a commit (default HEAD)
   commitcoach hook post-commit      run by the post-commit hook (internal)
+  commitcoach hook pre-push         run by the pre-push hook (internal); blocks the
+                                    push until every pushed commit passed its quiz
 
 Run "commitcoach <command> -h" for the options of a command.
 `
@@ -59,6 +64,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return runUninstall(args[1:], stdout, stderr)
 	case "export":
 		return runExport(args[1:], stdout, stderr)
+	case "send":
+		return runSend(args[1:], stderr)
 	case "hook":
 		return runHook(args[1:], stderr)
 	case "help", "-h", "-help", "--help":
