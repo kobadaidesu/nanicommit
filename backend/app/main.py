@@ -17,7 +17,7 @@ from psycopg_pool import PoolTimeout
 from app.auth import create_auth_client
 from app.config import get_settings
 from app.db import create_pool
-from app.routers import commits, push, repositories
+from app.routers import commits, push, repositories, quizzes
 
 logger = logging.getLogger(__name__)
 
@@ -74,9 +74,7 @@ def create_app() -> FastAPI:
     app.include_router(repositories.router)
     app.include_router(commits.router)
     app.include_router(push.router)
-    # Bさん：quizzes.py ができたらここに追加する。
-    #   from app.routers import quizzes
-    #   app.include_router(quizzes.router)
+    app.include_router(quizzes.router)
 
     return app
 

@@ -120,3 +120,55 @@ class PendingCommit(BaseModel):
 class PushCheckOut(BaseModel):
     allowed: bool
     pending_commits: list[PendingCommit]
+
+
+
+# ---- D3: 問題取得 -------------------------------------------------------------
+
+
+class QuizCommitInfo(BaseModel):
+    repository_id: UUID
+    repository_name: str
+    commit_sha: Sha
+    branch: str | None
+    message: str
+    files: list[str]
+    diff: str
+
+
+class QuizQuestionOut(BaseModel):
+    question_id: UUID
+    position: int
+    question: str
+    choices: list[str]
+    hint: str
+    solved: bool
+
+
+class QuizProgress(BaseModel):
+    solved_count: int
+    total_count: int
+
+
+class QuizDetailOut(BaseModel):
+    quiz_id: UUID
+    status: CommitStatus
+    commit: QuizCommitInfo
+    questions: list[QuizQuestionOut]
+    progress: QuizProgress
+
+
+# ---- D4: 回答・採点 -----------------------------------------------------------
+
+
+class AnswerIn(_Strict):
+    question_id: UUID
+    selected_index: Annotated[int, Field(ge=0, le=CHOICE_COUNT - 1)]
+
+
+class AnswerOut(BaseModel):
+    question_id: UUID
+    correct: bool
+    feedback: str
+    progress: QuizProgress
+    passed: bool
