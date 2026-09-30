@@ -4,6 +4,7 @@ import logging
 from pydantic import ValidationError
 
 from app.learning.errors import (
+    GenerationError,
     GenerationUnavailable,
     InsufficientContext,
     InvalidGeneratedQuiz,
@@ -17,8 +18,10 @@ logger = logging.getLogger(__name__)
 async def generate_quiz(*, message: str, files: list[str], diff: str) -> GeneratedQuiz:
     try:
         result = await call_generate_quiz(message=message, files=files, diff=diff)
+    except GenerationError:
+        # mcp_client側のGenerationTimeout(504)などは、503にまとめずそのまま伝える
+        raise
     except Exception as e:
-        # mcp_client側のGenerationTimeout/GenerationUnavailableはここをすり抜けてそのまま伝播する
         logger.exception("MCP経由の問題生成に失敗しました")
         raise GenerationUnavailable("MCP Serverへの接続に失敗しました") from e
 
