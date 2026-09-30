@@ -35,6 +35,10 @@ export interface GradeResult {
   question_id: string
   correct: boolean
   correct_choice_id: string
+  /** Server-provided feedback: the explanation when correct, a hint when not. */
+  feedback?: string
+  /** True once every question of the quiz is solved (push becomes allowed). */
+  passed?: boolean
 }
 
 export interface SessionResponse {

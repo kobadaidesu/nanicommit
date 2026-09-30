@@ -1,86 +1,129 @@
-// Thin data-access layer. Today it serves local mock data; the backend swap
-// is: make these two functions fetch() the real endpoints with the same
-// response shapes (types/quiz.ts).
+// Data-access layer for the quiz screen, backed by the real API (D3/D4).
+// The UI keeps its own view types (types/quiz.ts); this module adapts the
+// backend responses to them so components stay unchanged.
 import type { CommitPayload } from '../types/payload'
-import type { GradeResult, QuizSession, SessionResponse } from '../types/quiz'
-import payloadJson from './commitPayload.json'
+import type { GradeResult, QuizQuestion, SessionResponse } from '../types/quiz'
+import { supabase } from '../lib/supabase'
 
-// Verbatim copy of examples/commit.json — a real payload the CLI produced.
-const commit = payloadJson satisfies CommitPayload
+const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? 'http://localhost:8100'
 
-const quiz: QuizSession = {
-  session_id: 'mock-session-0001',
-  repository_id: commit.repository_id,
-  commit_sha: commit.commit_sha,
-  pass_policy: { require_all_correct: true },
-  questions: [
-    {
-      id: 'q1',
-      title: 'キャッシュ無効化の理由',
-      category: '実装の意図を理解する',
-      points: 10,
-      question:
-        'このコミットで、ユーザー削除後にキャッシュを無効化する処理を追加した主な理由は何ですか?',
-      choices: [
-        {
-          id: 'A',
-          label:
-            'ユーザー削除後に、古いキャッシュが残ることで不整合なデータが表示されるのを防ぐため',
-        },
-        { id: 'B', label: 'キャッシュの容量を節約するため' },
-        { id: 'C', label: 'データベースの負荷を下げるため' },
-        { id: 'D', label: 'ログの出力を増やしてデバッグしやすくするため' },
-      ],
-      hint: 'キャッシュを使うことでデータの読み込みは高速になりますが、更新時にはどのような問題が発生する可能性があるか考えてみましょう。',
-    },
-    {
-      id: 'q2',
-      title: '実装方法について',
-      category: '実装を読み解く',
-      points: 10,
-      question: 'get() メソッドはどのような戦略でキャッシュを利用していますか?',
-      choices: [
-        { id: 'A', label: '起動時に全ユーザーを読み込んでおく(プリロード)' },
-        {
-          id: 'B',
-          label:
-            '取得時にキャッシュを確認し、なければリポジトリから読んでキャッシュに保存する(読み込み時キャッシュ)',
-        },
-        { id: 'C', label: '一定時間ごとにキャッシュを作り直す(定期リフレッシュ)' },
-        { id: 'D', label: '書き込みのたびに必ずキャッシュを更新する(ライトスルー)' },
-      ],
-      hint: 'get() の中で self.cache をどの順番で参照・更新しているかに注目しましょう。',
-    },
-    {
-      id: 'q3',
-      title: '影響範囲の確認',
-      category: '変更の影響を考える',
-      points: 10,
-      question:
-        'このコミットで削除された src/legacy.py の legacy_lookup を呼び出すコードがまだ残っていた場合、何が起きますか?',
-      choices: [
-        { id: 'A', label: '何も起きない(自動的に無視される)' },
-        { id: 'B', label: '呼び出した時点で ImportError などの実行時エラーになる' },
-        { id: 'C', label: '自動的に新しいキャッシュ経由の実装が使われる' },
-        { id: 'D', label: 'ビルド時にコンパイルエラーとして検出される' },
-      ],
-      hint: 'Python がモジュールをいつ解決するか(コンパイル時か実行時か)を考えてみましょう。',
-    },
-  ],
+export type ApiErrorKind = 'no_quiz_id' | 'unauthenticated' | 'not_found' | 'server'
+
+export class ApiError extends Error {
+  constructor(
+    public kind: ApiErrorKind,
+    message?: string,
+  ) {
+    super(message ?? kind)
+  }
 }
 
-// Private to the mock: a real backend grades server-side and never ships this.
-const ANSWER_KEY: Record<string, string> = { q1: 'A', q2: 'B', q3: 'B' }
+const CHOICE_IDS = ['A', 'B', 'C', 'D']
+
+// D3 response (backend/app/schemas.py QuizDetailOut).
+interface QuizDetailOut {
+  quiz_id: string
+  status: 'ready' | 'passed'
+  commit: CommitPayload & { repository_name: string }
+  questions: {
+    question_id: string
+    position: number
+    question: string
+    choices: string[]
+    hint: string
+    solved: boolean
+  }[]
+  progress: { solved_count: number; total_count: number }
+}
+
+// D4 response (backend/app/schemas.py AnswerOut).
+interface AnswerOut {
+  question_id: string
+  correct: boolean
+  feedback: string
+  progress: { solved_count: number; total_count: number }
+  passed: boolean
+}
+
+/** The quiz id comes from the page URL: /quizzes/<uuid> (the CLI prints it). */
+function quizIdFromPath(): string {
+  const m = window.location.pathname.match(/\/quizzes\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i)
+  if (!m) throw new ApiError('no_quiz_id')
+  return m[1].toLowerCase()
+}
+
+async function authHeaders(): Promise<Record<string, string>> {
+  if (!supabase) throw new ApiError('unauthenticated', 'Supabase が設定されていません')
+  const { data } = await supabase.auth.getSession()
+  const token = data.session?.access_token
+  if (!token) throw new ApiError('unauthenticated')
+  return { Authorization: `Bearer ${token}` }
+}
+
+async function request<T>(path: string, init: RequestInit): Promise<T> {
+  let res: Response
+  try {
+    res = await fetch(`${API_BASE}${path}`, init)
+  } catch {
+    throw new ApiError('server', `バックエンド (${API_BASE}) に接続できません`)
+  }
+  if (res.status === 401) throw new ApiError('unauthenticated')
+  if (res.status === 404) throw new ApiError('not_found')
+  if (!res.ok) {
+    const detail = await res
+      .json()
+      .then((b: { detail?: unknown }) => (typeof b.detail === 'string' ? b.detail : undefined))
+      .catch(() => undefined)
+    throw new ApiError('server', detail ?? `HTTP ${res.status}`)
+  }
+  return res.json() as Promise<T>
+}
 
 export async function getSession(): Promise<SessionResponse> {
-  return { commit, quiz }
+  const quizId = quizIdFromPath()
+  const headers = await authHeaders()
+  const data = await request<QuizDetailOut>(`/api/v1/quizzes/${quizId}`, { headers })
+
+  const questions: QuizQuestion[] = data.questions.map((q) => ({
+    id: q.question_id,
+    title: q.question.length > 14 ? `${q.question.slice(0, 14)}…` : q.question,
+    category: '変更内容を理解する',
+    points: 10,
+    question: q.question,
+    choices: q.choices.map((label, i) => ({ id: CHOICE_IDS[i] ?? String(i + 1), label })),
+    hint: q.hint,
+  }))
+
+  const { repository_name: _repositoryName, ...commit } = data.commit
+  return {
+    commit,
+    quiz: {
+      session_id: data.quiz_id,
+      repository_id: data.commit.repository_id,
+      commit_sha: data.commit.commit_sha,
+      pass_policy: { require_all_correct: true },
+      questions,
+    },
+  }
 }
 
 export async function gradeAnswer(questionId: string, choiceId: string): Promise<GradeResult> {
-  const correctChoiceId = ANSWER_KEY[questionId]
+  const quizId = quizIdFromPath()
+  const headers = await authHeaders()
+  const selectedIndex = CHOICE_IDS.indexOf(choiceId)
+  const result = await request<AnswerOut>(`/api/v1/quizzes/${quizId}/answers`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ question_id: questionId, selected_index: selectedIndex }),
+  })
   return {
-    question_id: questionId,
-    correct: choiceId === correctChoiceId,
-    correct_choice_id: correctChoiceId,
+    question_id: result.question_id,
+    // The server never reveals the correct choice; when the answer was
+    // correct the selected choice IS the correct one, which is all the
+    // highlight in QuizCard needs.
+    correct: result.correct,
+    correct_choice_id: result.correct ? choiceId : '',
+    feedback: result.feedback,
+    passed: result.passed,
   }
 }
