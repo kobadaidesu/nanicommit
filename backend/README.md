@@ -1,8 +1,7 @@
 # nanicommit backend
 
 FastAPI のバックエンドです。設計は [docs/design.md](../docs/design.md) を参照してください。
-このディレクトリには Aさん担当分（基盤・認証・リポジトリ登録・commit 受信・push 確認・DB）が入っています。
-問題取得・回答・採点（`routers/quizzes.py`・`learning/grade.py`）と MCP による問題生成（`learning/mcp_client.py`・`learning/generate.py`）は Bさんが追加します。
+Aさん担当分（基盤・認証・リポジトリ登録・commit 受信・push 確認・DB）と、Bさん担当分（問題取得・回答・採点の `routers/quizzes.py`、MCP による問題生成の `learning/mcp_client.py`・`learning/mcp_server.py`・`learning/generate.py`）が入っています。
 
 ## 起動
 
@@ -15,7 +14,7 @@ uv run uvicorn app.main:app --reload
 
 DB のテーブルは [supabase/migrations/](../supabase/migrations/) の SQL を Supabase に適用して作ります（design.md 7.2 の DDL と同じ内容）。
 
-`QUIZ_GENERATOR=fake`（既定）では、MCP Server なしで commit の内容から機械的に3問を作ります。MCP で本物の問題を作るときは `QUIZ_GENERATOR=mcp` にします。
+`QUIZ_GENERATOR=fake`（既定）では、MCP Server なしで commit の内容から機械的に3問を作ります。MCP で本物の問題を作るときは `QUIZ_GENERATOR=mcp` にし、`GOOGLE_API_KEY` を設定します。MCP Server（`app/learning/mcp_server.py`）は、生成のたびに FastAPI が子プロセスとして起動します（別途起動は不要）。
 
 ## テスト
 
@@ -43,7 +42,9 @@ Environment（環境変数）には `.env.example` の項目を登録します�
 - `SUPABASE_URL` / `SUPABASE_ANON_KEY`：Supabase の Project Settings → API
 - `WEB_BASE_URL`：フロントの本番 URL（例 `https://nanicommit.vercel.app`）
 - `CORS_ORIGINS`：`["<フロントの本番 URL>"]`（JSON の配列で書く）
-- `QUIZ_GENERATOR`：MCP ができるまでは `fake`
+- `QUIZ_GENERATOR`：`mcp`（Gemini で問題を作る）か `fake`（固定の3問）
+- `GOOGLE_API_KEY`：Google AI Studio の API キー（`QUIZ_GENERATOR=mcp` のときだけ必要）
+- `GEMINI_MODEL`：モデルを変えるときだけ設定（未設定なら `mcp_server.py` の既定値）
 - `PYTHON_VERSION`：`3.12`（`.python-version` と同じ。念のため指定）
 
 デプロイ後、`https://<サービス名>.onrender.com/health` が `{"status":"ok"}` を返せば起動しています。
@@ -70,20 +71,22 @@ Render の無料プランは、しばらくアクセスが無いと停止しま�
 | フロントのホスティング先の環境変数 | バックエンドの URL | `https://<サービス名>.onrender.com` |
 | CLI（hooks）の設定 | バックエンドの URL | `https://<サービス名>.onrender.com` |
 
-バックの2つは、まだ設定する場所がありません（フロントは `src/data/api.ts` が仮実装、CLI には接続先の設定が無い）。実装されたら、その場所に入れてください。
+フロントは環境変数 `VITE_API_BASE_URL`、CLI は `commitcoach init --backend-url` で設定します。
 
-## API（Aさん担当分）
+## API
 
 | メソッド | パス | 識別 | 内容 |
 |---|---|---|---|
 | POST | `/api/v1/repositories` | `X-User-Id` | R0：リポジトリ登録。`repository_id` を渡すと復旧（200、開始点は上書きしない） |
 | POST | `/api/v1/commits` | `X-User-Id` | D1：受信・問題生成・保存。新規 201、登録済み 200、内容違い 409 |
+| GET | `/api/v1/quizzes/{quiz_id}` | Supabase access token | D3：差分・問題・進捗（正解は返さない）。別ユーザーのものは 404 |
+| POST | `/api/v1/quizzes/{quiz_id}/answers` | Supabase access token | D4：1問ずつ採点・保存。正解済みの問題を別の選択肢に変えると 409 |
 | POST | `/api/v1/push/check` | `X-User-Id` | D5：合格確認。`missing` / `not_passed` を返す |
 | GET | `/health` | なし | 疎通確認 |
 
 - `X-User-Id` は小文字ハイフン付き UUID で、`auth.users` に存在する必要があります（無い・不正・不存在は 401）。
 - 送信上限は Go CLI（`hooks/internal/event/limits.go`）と同じ、ファイル100個・差分512KiB。超過は 413。
-- 生成失敗は 422（根拠不足）/ 502（生成結果が不正）/ 503（接続不可）/ 504（30秒タイムアウト）。どの場合も何も保存しないので、`send --commit SHA` で再送できます。
+- 生成失敗は 422（根拠不足）/ 502（生成結果が不正）/ 503（接続不可）/ 504（タイムアウト。MCP 呼び出し20秒・生成全体30秒）。どの場合も何も保存しないので、`send --commit SHA` で再送できます。
 - DB に繋がらないときは 503 を返します。
 - 429（生成リクエストの試行上限）は PoC では未実装です。
 
@@ -106,9 +109,11 @@ app/
 └── learning/
     ├── errors.py        # A：問題生成の失敗の種類（例外）
     ├── runner.py        # A：問題生成の呼び出し役
-    ├── mcp_client.py    # Bさん（未作成）
-    ├── generate.py      # Bさん（未作成）
-    └── grade.py         # Bさん（未作成）
+    ├── mcp_client.py    # B：MCP Server の起動と generate_quiz 呼び出し（20秒で打ち切り）
+    ├── mcp_server.py    # B：generate_quiz tool（Gemini を呼ぶ）
+    ├── prompts.py       # B：問題生成のプロンプト
+    ├── generate.py      # B：MCP の結果を検証して GeneratedQuiz にする
+    └── grade.py         # B：一括採点（現在どこからも使われていない。D4 の採点は quizzes.py 内）
 ```
 
 | ファイル | なぜ必要か | Bさんとの関係 |
