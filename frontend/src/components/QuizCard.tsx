@@ -98,7 +98,7 @@ export function QuizCard({ question, index, total, quiz, onSelect, onSubmit, onN
           }
         >
           {feedback.correct
-            ? '✓ 正解です!'
+            ? `✓ 正解です! ${feedback.feedback ?? ''}`
             : '✗ 不正解です。もう一度、差分を読み直して考えてみましょう。'}
         </div>
       )}
