@@ -125,3 +125,35 @@ def commit_body(repository_id: str, sha: str = SHA1, **overrides) -> dict:
         "diff": "diff --git a/src/user_service.py b/src/user_service.py\n+x\n",
         **overrides,
     }
+
+
+class FakeAuth:
+    """Supabase Auth の代わり。web_headers で発行したトークンだけを通す。"""
+
+    def __init__(self) -> None:
+        self.tokens: dict[str, UUID] = {}
+
+    async def get_user(self, token: str):
+        from supabase_auth.errors import AuthApiError
+
+        if token not in self.tokens:
+            raise AuthApiError("invalid JWT", 401, "bad_jwt")
+        user = type("U", (), {"id": str(self.tokens[token])})()
+        return type("R", (), {"user": user})()
+
+    async def close(self) -> None:
+        pass
+
+
+@pytest.fixture
+def fake_auth(client: TestClient) -> FakeAuth:
+    auth = FakeAuth()
+    client.app.state.auth_client = auth
+    return auth
+
+
+def web_headers(auth: FakeAuth, user_id: UUID) -> dict[str, str]:
+    """user_id としてログインした Web の Authorization ヘッダ。"""
+    token = f"token-{user_id}"
+    auth.tokens[token] = user_id
+    return {"Authorization": f"Bearer {token}"}

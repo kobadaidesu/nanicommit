@@ -15,6 +15,7 @@ from tests.conftest import (
     commit_body,
     make_user,
     register_repo,
+    web_headers,
 )
 
 
@@ -236,24 +237,13 @@ def test_push_check_rejects_empty_list(client, user):
     assert r.status_code == 422
 
 
-# ---- Web 認証（Bさんの quizzes.py で使う依存関数） -----------------------------
+# ---- Web 認証（quizzes.py で使う依存関数） -----------------------------
 
 
-def test_web_user_requires_valid_bearer(client, user):
+def test_web_user_requires_valid_bearer(client, fake_auth, user):
     from fastapi import APIRouter
 
     from app.auth import WebUserId
-
-    class FakeAuth:
-        async def get_user(self, token):
-            from supabase_auth.errors import AuthApiError
-
-            if token != "good":
-                raise AuthApiError("invalid JWT", 401, "bad_jwt")
-            return type("R", (), {"user": type("U", (), {"id": str(user)})()})()
-
-        async def close(self):
-            pass
 
     router = APIRouter()
 
@@ -262,12 +252,11 @@ def test_web_user_requires_valid_bearer(client, user):
         return {"user_id": str(user_id)}
 
     client.app.include_router(router)
-    client.app.state.auth_client = FakeAuth()
 
     assert client.get("/whoami").status_code == 401
     assert client.get("/whoami", headers=cli_headers(user)).status_code == 401  # X-User-Id だけでは通らない
     assert client.get("/whoami", headers={"Authorization": "Bearer bad"}).status_code == 401
-    r = client.get("/whoami", headers={"Authorization": "Bearer good"})
+    r = client.get("/whoami", headers=web_headers(fake_auth, user))
     assert r.json() == {"user_id": str(user)}
 
 
