@@ -6,19 +6,25 @@ import (
 	"os"
 )
 
-// blockBanner is the first line the pre-push hook shows when it blocks a
-// push: the character "Ponta" saying it will not let the push through.
-const blockBanner = "絶対に逃さないポン"
+// blockBanner is what the pre-push hook shows first when it blocks a push:
+// the character "Ponta" saying it will not let the push through, repeated
+// blockBannerLines times, one per line.
+const (
+	blockBanner      = "絶対に逃さないポン"
+	blockBannerLines = 6
+)
 
-// printBlockBanner writes blockBanner in bold red when w is a terminal, and
-// as plain text otherwise (a GUI client, a pipe, or NO_COLOR set), so that
+// printBlockBanner writes the banner lines in bold red when w is a terminal,
+// and as plain text otherwise (a GUI client, a pipe, or NO_COLOR set), so that
 // escape codes never show up as garbage.
 func printBlockBanner(w io.Writer) {
+	format := "%s\n"
 	if colorEnabled(w) {
-		fmt.Fprintf(w, "\x1b[1;31m%s\x1b[0m\n", blockBanner)
-		return
+		format = "\x1b[1;31m%s\x1b[0m\n"
 	}
-	fmt.Fprintln(w, blockBanner)
+	for range blockBannerLines {
+		fmt.Fprintf(w, format, blockBanner)
+	}
 }
 
 // colorEnabled reports whether w is a terminal and NO_COLOR
