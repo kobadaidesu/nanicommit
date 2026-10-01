@@ -12,17 +12,21 @@ from google.genai import types
 from google.genai.errors import ServerError
 from mcp.server.mcpserver import MCPServer
 
+from app.learning.claude_cli import run_claude_json
 from app.learning.prompts import SYSTEM_PROMPT, build_user_message
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, stream=__import__("sys").stderr)  # ← stderrへ。stdoutは絶対に使わない
 
+# gemini: Gemini API（GOOGLE_API_KEY必須） / claude: Claude Code CLI（サブスクで動く。ローカル開発用）
+QUIZ_LLM = os.environ.get("QUIZ_LLM", "gemini")
+
 api_key = os.environ.get("GOOGLE_API_KEY")
-if not api_key:
+if QUIZ_LLM == "gemini" and not api_key:
     raise RuntimeError("GOOGLE_API_KEY が設定されていません（.envを確認してください）")
 
 mcp = MCPServer("nanicommit-quiz-generator")
-client = genai.Client(api_key=api_key)
+client = genai.Client(api_key=api_key) if api_key else None
 
 MODEL_NAME = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
 
@@ -53,9 +57,20 @@ RESPONSE_SCHEMA = {
 }
 
 
+def _generate_with_claude(message: str, files: list[str], diff: str) -> dict:
+    # ツール無効・stdin渡し等の安全策は claude_cli 側でまとめて行う。
+    return run_claude_json(
+        build_user_message(message=message, files=files, diff=diff),
+        system_prompt=SYSTEM_PROMPT,
+    )
+
+
 @mcp.tool()
 def generate_quiz(message: str, files: list[str], diff: str) -> dict:
     """commitの内容から4択問題を3問生成する"""
+    if QUIZ_LLM == "claude":
+        return _generate_with_claude(message=message, files=files, diff=diff)
+
     last_error = None
     response = None
     for attempt in range(3):
