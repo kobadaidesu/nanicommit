@@ -126,6 +126,7 @@ func runHookPrePush(args []string, stdin io.Reader, stderr io.Writer) int {
 
 	check, err := backend.New(cfg).CheckPush(ctx, id, shas)
 	if err != nil {
+		printBlockBanner(stderr)
 		fmt.Fprintf(stderr, "commitcoach: the push was blocked, because the pass state could not be confirmed: %v\n", err)
 		return exitError
 	}
@@ -134,6 +135,7 @@ func runHookPrePush(args []string, stdin io.Reader, stderr io.Writer) int {
 		return exitOK
 	}
 
+	printBlockBanner(stderr)
 	fmt.Fprintf(stderr, "commitcoach: the push was blocked; %d commit(s) have not passed their quiz yet:\n", len(check.PendingCommits))
 	for _, p := range check.PendingCommits {
 		switch {
