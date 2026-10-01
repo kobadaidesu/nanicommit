@@ -18,13 +18,15 @@ import (
 )
 
 func runInit(args []string, stdout, stderr io.Writer) int {
-	fs := newFlagSet("init [--repository-id UUID] [--backend-url URL --user-id UUID]",
+	fs := newFlagSet("init [--backend-url URL --user-id UUID] [--repository-id UUID]",
 		"Install the post-commit and pre-push hooks in the current repository that run this commitcoach binary,\n"+
 			"and save the repository ID in the local git config ("+repoid.ConfigKey+").\n"+
 			"With --backend-url and --user-id the backend settings are saved too, and every commit is sent\n"+
 			"to the backend for a quiz; the pre-push hook then blocks pushes until the quizzes are passed.\n"+
+			"When no repository ID is given or saved, init registers the repository with the backend and\n"+
+			"saves the ID it gets; a given ID is checked with the backend instead (to recover a registration).\n"+
 			"Nothing is changed if core.hooksPath is set or a hook that is not commitcoach's exists.", stderr)
-	flagID := fs.String("repository-id", "", "UUID of this repository in the backend (required unless already saved)")
+	flagID := fs.String("repository-id", "", "UUID of this repository in the backend (only to reuse an existing registration; without the backend, required unless already saved)")
 	flagURL := fs.String("backend-url", "", "base URL of the learning backend, e.g. http://localhost:8100 (saved as "+backend.ConfigKeyURL+")")
 	flagUser := fs.String("user-id", "", "UUID of the user in the backend (saved as "+backend.ConfigKeyUser+")")
 	if code, ok := parseFlags(fs, args); !ok {
@@ -56,12 +58,24 @@ func runInit(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err)
 	}
-	// Check the ID before changing anything.
-	id, err := repoid.Resolve(ctx, repo, *flagID)
+	// The backend to register with: the flags, or the saved settings.
+	var cfg *backend.Config
+	if *flagURL != "" {
+		cfg = &backend.Config{BaseURL: strings.TrimRight(*flagURL, "/"), UserID: normalizedUser}
+	} else if c, err := backend.LoadConfig(ctx, repo); err == nil {
+		cfg = &c
+	} else if !errors.Is(err, backend.ErrNotConfigured) {
+		return fail(stderr, err)
+	}
+	saved, err := repoid.Load(ctx, repo)
+	if err != nil && !errors.Is(err, repoid.ErrNotSet) && *flagID == "" {
+		return fail(stderr, err)
+	}
+	// Settle the ID before changing anything.
+	id, registered, err := resolveRepositoryID(ctx, repo, cfg, *flagID, saved, *flagURL != "")
 	if err != nil {
 		return fail(stderr, err)
 	}
-	saved, _ := repoid.Load(ctx, repo) // "" when not set (or not valid)
 
 	for _, name := range hooks.ManagedHooks {
 		res, err := hooks.InstallHook(ctx, repo, exe, name)
@@ -75,8 +89,14 @@ func runInit(args []string, stdout, stderr io.Writer) int {
 				"To run commitcoach from your own hook, add this line to %s\n"+
 				"(create the file with \"#!/bin/sh\" as its first line and make it executable if it does not exist):\n\n    %s\n",
 				conflict.HookFile, conflict.Line)
-			if id != saved {
+			if registered {
+				fmt.Fprintf(stderr, "\nThe repository was registered in the backend, though; save its ID so that init does not register it again:\n\n    git config --local %s %s\n", repoid.ConfigKey, id)
+			} else if id != saved {
 				fmt.Fprintf(stderr, "\nand save the repository ID:\n\n    git config --local %s %s\n", repoid.ConfigKey, id)
+			}
+			if *flagURL != "" {
+				fmt.Fprintf(stderr, "\nand save the backend settings:\n\n    git config --local %s %s\n    git config --local %s %s\n",
+					backend.ConfigKeyURL, *flagURL, backend.ConfigKeyUser, normalizedUser)
 			}
 			return exitError
 		}
@@ -111,7 +131,12 @@ func runInit(args []string, stdout, stderr io.Writer) int {
 		if err := repoid.Save(ctx, repo, id); err != nil {
 			return fail(stderr, fmt.Errorf("the hook is installed, but %w; run init again", err))
 		}
-		fmt.Fprintf(stdout, "  repository id: %s (saved as %s in the local git config)\n", id, repoid.ConfigKey)
+		if registered {
+			fmt.Fprintf(stdout, "  repository id: %s (registered in the backend as %q; saved as %s in the local git config)\n",
+				id, repo.DisplayName(), repoid.ConfigKey)
+		} else {
+			fmt.Fprintf(stdout, "  repository id: %s (saved as %s in the local git config)\n", id, repoid.ConfigKey)
+		}
 	} else {
 		fmt.Fprintf(stdout, "  repository id: %s\n", id)
 	}
@@ -119,6 +144,44 @@ func runInit(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, "  note:      hooks are shared by all worktrees of this repository")
 	}
 	return exitOK
+}
+
+// resolveRepositoryID settles the repository ID for init (design.md 4.1).
+// A saved ID is kept, so running init again never registers the repository
+// twice or moves its learning start. Without one, the repository is
+// registered with HEAD as the learning start. An ID given with the flag, or
+// a saved one used with newly given backend settings, is confirmed with the
+// backend so that commits are not sent under an ID the user does not own.
+func resolveRepositoryID(ctx context.Context, repo *gitrepo.Repo, cfg *backend.Config, flag, saved string, newBackend bool) (id string, registered bool, err error) {
+	id = saved
+	if flag != "" {
+		if id, err = repoid.Normalize(flag); err != nil {
+			return "", false, err
+		}
+	}
+	if cfg == nil {
+		if id == "" {
+			return "", false, fmt.Errorf("%w,\nor let init register the repository: commitcoach init --backend-url <URL> --user-id <UUID>", repoid.ErrNotSet)
+		}
+		return id, false, nil
+	}
+	if id != "" && flag == "" && !newBackend {
+		return id, false, nil
+	}
+	base, err := repo.ResolveCommit(ctx, "HEAD")
+	if errors.Is(err, gitrepo.ErrUnknownCommit) {
+		base = "" // no commits yet: the backend stores null
+	} else if err != nil {
+		return "", false, err
+	}
+	got, err := backend.New(*cfg).RegisterRepository(ctx, repo.DisplayName(), base, id)
+	if errors.Is(err, backend.ErrUnknownRepository) && flag == "" {
+		return "", false, fmt.Errorf("%w;\nto register this repository for this user instead, forget the saved ID and run init again:\n\n    git config --local --unset %s", err, repoid.ConfigKey)
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return got, id == "", nil
 }
 
 // installableExecutable returns the absolute path of the running binary,
@@ -227,7 +290,7 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 	if id, err := repoid.Load(ctx, repo); err == nil {
 		out("repository id", "%s (%s, local git config)", id, repoid.ConfigKey)
 	} else if errors.Is(err, repoid.ErrNotSet) {
-		out("repository id", "not set (run \"commitcoach init --repository-id <UUID>\"; the hook fails without it)")
+		out("repository id", "not set (run \"commitcoach init --backend-url <URL> --user-id <UUID>\" to register, or init --repository-id <UUID>; the hook fails without it)")
 	} else {
 		out("repository id", "INVALID: %v", err)
 	}

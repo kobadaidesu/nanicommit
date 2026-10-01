@@ -1,5 +1,6 @@
 // Package backend talks to the learning backend (FastAPI) over HTTP.
-// It sends commit payloads (D1) and asks whether a push may proceed (D5).
+// It registers repositories (R0), sends commit payloads (D1) and asks
+// whether a push may proceed (D5).
 //
 // The backend location and the user are read from Git configuration:
 //
@@ -117,6 +118,55 @@ func (c *Client) SendCommit(ctx context.Context, payload []byte) (*CommitResult,
 	}
 	out.AlreadyRegistered = status == http.StatusOK
 	return &out, nil
+}
+
+// ErrUnknownUser means the backend does not know the user ID (HTTP 401).
+var ErrUnknownUser = errors.New("the backend does not know this user ID; copy it again from the web /connect page")
+
+// ErrUnknownRepository means the repository ID is not registered to the
+// user (HTTP 404).
+var ErrUnknownRepository = errors.New("the repository ID is not registered to this user")
+
+// RegisterRepository registers a repository (R0) and returns its ID.
+// learningBaseSHA is HEAD at init, or "" for a repository without commits.
+// With existingID nothing is registered: the backend only confirms that the
+// repository belongs to the user, and name and learningBaseSHA are ignored.
+func (c *Client) RegisterRepository(ctx context.Context, name, learningBaseSHA, existingID string) (string, error) {
+	body := map[string]any{"name": name, "learning_base_sha": nil}
+	if learningBaseSHA != "" {
+		body["learning_base_sha"] = learningBaseSHA
+	}
+	if existingID != "" {
+		body["repository_id"] = existingID
+	}
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return "", err
+	}
+	status, resp, err := c.post(ctx, "/api/v1/repositories", payload)
+	if err != nil {
+		return "", err
+	}
+	switch status {
+	case http.StatusCreated, http.StatusOK:
+	case http.StatusUnauthorized:
+		return "", fmt.Errorf("registering the repository as user %s failed: %w", c.cfg.UserID, ErrUnknownUser)
+	case http.StatusNotFound:
+		return "", fmt.Errorf("confirming repository %s failed: %w", existingID, ErrUnknownRepository)
+	default:
+		return "", apiError("registering the repository", status, resp)
+	}
+	var out struct {
+		RepositoryID string `json:"repository_id"`
+	}
+	if err := json.Unmarshal(resp, &out); err != nil {
+		return "", fmt.Errorf("the backend answered with unexpected JSON: %w", err)
+	}
+	id, err := repoid.Normalize(out.RepositoryID)
+	if err != nil {
+		return "", fmt.Errorf("the backend answered with an invalid repository ID: %w", err)
+	}
+	return id, nil
 }
 
 // PendingCommit is one commit that blocks a push.
