@@ -166,7 +166,7 @@ func TestInitAndCommitRecordPayloads(t *testing.T) {
 	r.Git("add", "-A")
 	stderr := commit(t, r, "-m", "Initial commit")
 	first := r.Head()
-	if !strings.Contains(stderr, "commitcoach: recorded the snapshot of "+first) {
+	if !strings.Contains(stderr, "nanicommit: recorded the snapshot of "+first) {
 		t.Errorf("hook message missing: %q", stderr)
 	}
 	p := readPayload(t, r, first)

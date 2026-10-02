@@ -35,7 +35,7 @@ func buildPayload(ctx context.Context, repo *gitrepo.Repo, oid, repositoryID str
 
 func printNotes(stderr io.Writer, notes []string) {
 	for _, n := range notes {
-		fmt.Fprintf(stderr, "commitcoach: note: %s\n", n)
+		fmt.Fprintf(stderr, "nanicommit: note: %s\n", n)
 	}
 }
 
@@ -90,7 +90,7 @@ func runExport(args []string, stdout, stderr io.Writer) int {
 		if err := storage.WriteFileAtomic(*output, data); err != nil {
 			return fail(stderr, err)
 		}
-		fmt.Fprintf(stderr, "commitcoach: wrote the snapshot of %s to %s\n", oid, *output)
+		fmt.Fprintf(stderr, "nanicommit: wrote the snapshot of %s to %s\n", oid, *output)
 	}
 	printNotes(stderr, notes)
 	return exitOK
@@ -118,10 +118,10 @@ func runHook(args []string, stderr io.Writer) int {
 	repo, oid, data, path, notes, err := recordHead(ctx)
 	if err != nil {
 		// The commit exists regardless; say so, so nobody retries it.
-		fmt.Fprintf(stderr, "commitcoach: error: the commit was created, but its snapshot could not be recorded: %v\n", explain(err))
+		fmt.Fprintf(stderr, "nanicommit: error: the commit was created, but its snapshot could not be recorded: %v\n", explain(err))
 		return exitError
 	}
-	fmt.Fprintf(stderr, "commitcoach: recorded the snapshot of %s in %s\n", oid, path)
+	fmt.Fprintf(stderr, "nanicommit: recorded the snapshot of %s in %s\n", oid, path)
 	printNotes(stderr, notes)
 	sendRecorded(ctx, repo, oid, data, stderr)
 	return exitOK
@@ -136,14 +136,14 @@ func sendRecorded(ctx context.Context, repo *gitrepo.Repo, oid string, data []by
 		return // recording-only setup; nothing to send to
 	}
 	if err != nil {
-		fmt.Fprintf(stderr, "commitcoach: warning: %v\n", err)
+		fmt.Fprintf(stderr, "nanicommit: warning: %v\n", err)
 		return
 	}
-	fmt.Fprintf(stderr, "commitcoach: sending %s to %s and waiting for its quiz ...\n", short(oid), cfg.BaseURL)
+	fmt.Fprintf(stderr, "nanicommit: sending %s to %s and waiting for its quiz ...\n", short(oid), cfg.BaseURL)
 	res, err := backend.New(cfg).SendCommit(ctx, data)
 	if err != nil {
-		fmt.Fprintf(stderr, "commitcoach: warning: the commit was recorded, but not sent: %v\n", err)
-		fmt.Fprintf(stderr, "commitcoach: resend it later with: commitcoach send --commit %s\n", short(oid))
+		fmt.Fprintf(stderr, "nanicommit: warning: the commit was recorded, but not sent: %v\n", err)
+		fmt.Fprintf(stderr, "nanicommit: resend it later with: commitcoach send --commit %s\n", short(oid))
 		return
 	}
 	printQuiz(stderr, oid, res)

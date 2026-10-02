@@ -81,7 +81,7 @@ func runInit(args []string, stdout, stderr io.Writer) int {
 		res, err := hooks.InstallHook(ctx, repo, exe, name)
 		var conflict *hooks.ConflictError
 		if errors.As(err, &conflict) {
-			fmt.Fprintf(stderr, "commitcoach: the %s hook was not installed: %s.\n", name, conflict.Reason)
+			fmt.Fprintf(stderr, "nanicommit: the %s hook was not installed: %s.\n", name, conflict.Reason)
 			for _, d := range conflict.Details {
 				fmt.Fprintf(stderr, "  %s\n", d)
 			}
@@ -105,11 +105,11 @@ func runInit(args []string, stdout, stderr io.Writer) int {
 		}
 		switch res.Action {
 		case hooks.Created:
-			fmt.Fprintf(stdout, "commitcoach: installed the %s hook: %s\n", name, res.HookFile)
+			fmt.Fprintf(stdout, "nanicommit: installed the %s hook: %s\n", name, res.HookFile)
 		case hooks.Updated:
-			fmt.Fprintf(stdout, "commitcoach: updated the %s hook: %s\n  previous executable: %s\n", name, res.HookFile, res.PreviousExecutable)
+			fmt.Fprintf(stdout, "nanicommit: updated the %s hook: %s\n  previous executable: %s\n", name, res.HookFile, res.PreviousExecutable)
 		case hooks.Unchanged:
-			fmt.Fprintf(stdout, "commitcoach: the %s hook is already installed: %s\n", name, res.HookFile)
+			fmt.Fprintf(stdout, "nanicommit: the %s hook is already installed: %s\n", name, res.HookFile)
 		}
 		fmt.Fprintf(stdout, "  runs:      %s hook %s\n", exe, name)
 	}
@@ -227,7 +227,7 @@ func runUninstall(args []string, stdout, stderr io.Writer) int {
 		res, err := hooks.UninstallHook(ctx, repo, name)
 		var modified *hooks.ModifiedHookError
 		if errors.As(err, &modified) {
-			fmt.Fprintf(stderr, "commitcoach: warning: %v\n", err)
+			fmt.Fprintf(stderr, "nanicommit: warning: %v\n", err)
 			code = exitError
 			continue
 		}
@@ -236,11 +236,11 @@ func runUninstall(args []string, stdout, stderr io.Writer) int {
 		}
 		switch res.Action {
 		case hooks.Removed:
-			fmt.Fprintf(stdout, "commitcoach: removed the %s hook: %s\n", name, res.HookFile)
+			fmt.Fprintf(stdout, "nanicommit: removed the %s hook: %s\n", name, res.HookFile)
 		case hooks.Absent:
-			fmt.Fprintf(stdout, "commitcoach: no %s hook is installed (%s does not exist); nothing to do\n", name, res.HookFile)
+			fmt.Fprintf(stdout, "nanicommit: no %s hook is installed (%s does not exist); nothing to do\n", name, res.HookFile)
 		case hooks.LeftAlone:
-			fmt.Fprintf(stdout, "commitcoach: %s was not created by commitcoach; it was left unchanged\n", res.HookFile)
+			fmt.Fprintf(stdout, "nanicommit: %s was not created by commitcoach; it was left unchanged\n", res.HookFile)
 		}
 	}
 	if code != exitOK {

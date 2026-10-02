@@ -1,6 +1,7 @@
 package cli_test
 
-// The pre-push hook shows "絶対に逃さないポン" six times when it blocks a push. These tests
+// When the pre-push hook blocks a push for unpassed quizzes, it shows only
+// "絶対に逃さないポン" nine times. These tests
 // run a real "git push" to a local bare repository against a fake backend.
 
 import (
@@ -54,8 +55,8 @@ func TestPushBlockBanner(t *testing.T) {
 		t.Fatalf("push was not blocked:\n%s", stderr)
 	}
 	// The hook's stderr is a pipe here, so the banner is plain text.
-	if !strings.Contains(stderr, strings.Repeat("絶対に逃さないポン\n", 6)) || strings.Count(stderr, "絶対に逃さないポン") != 6 || strings.Contains(stderr, "\x1b[") ||
-		!strings.Contains(stderr, "the push was blocked") {
+	if !strings.Contains(stderr, strings.Repeat("絶対に逃さないポン\n", 9)) || strings.Count(stderr, "絶対に逃さないポン") != 9 || strings.Contains(stderr, "\x1b[") ||
+		strings.Contains(stderr, "nanicommit:") || strings.Contains(stderr, "commitcoach") {
 		t.Errorf("blocked push stderr:\n%q", stderr)
 	}
 

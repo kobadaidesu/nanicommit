@@ -11,7 +11,7 @@ import (
 // blockBannerLines times, one per line.
 const (
 	blockBanner      = "絶対に逃さないポン"
-	blockBannerLines = 6
+	blockBannerLines = 9
 )
 
 // printBlockBanner writes the banner lines in bold red when w is a terminal,

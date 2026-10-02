@@ -72,7 +72,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprint(stdout, usageText)
 		return exitOK
 	default:
-		fmt.Fprintf(stderr, "commitcoach: unknown command %q\n\n%s", args[0], usageText)
+		fmt.Fprintf(stderr, "nanicommit: unknown command %q\n\n%s", args[0], usageText)
 		return exitUsage
 	}
 }
@@ -113,6 +113,6 @@ func parseFlags(fs *flag.FlagSet, args []string) (code int, ok bool) {
 }
 
 func fail(stderr io.Writer, err error) int {
-	fmt.Fprintf(stderr, "commitcoach: error: %v\n", err)
+	fmt.Fprintf(stderr, "nanicommit: error: %v\n", err)
 	return exitError
 }

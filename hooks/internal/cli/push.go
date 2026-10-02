@@ -56,7 +56,7 @@ func runSend(args []string, stderr io.Writer) int {
 		return fail(stderr, explain(err))
 	}
 	printNotes(stderr, notes)
-	fmt.Fprintf(stderr, "commitcoach: sending %s to %s ...\n", short(oid), cfg.BaseURL)
+	fmt.Fprintf(stderr, "nanicommit: sending %s to %s ...\n", short(oid), cfg.BaseURL)
 	res, err := backend.New(cfg).SendCommit(ctx, data)
 	if err != nil {
 		return fail(stderr, err)
@@ -68,11 +68,11 @@ func runSend(args []string, stderr io.Writer) int {
 func printQuiz(stderr io.Writer, oid string, res *backend.CommitResult) {
 	switch {
 	case res.Status == "passed":
-		fmt.Fprintf(stderr, "commitcoach: %s has already passed its quiz\n", short(oid))
+		fmt.Fprintf(stderr, "nanicommit: %s has already passed its quiz\n", short(oid))
 	case res.AlreadyRegistered:
-		fmt.Fprintf(stderr, "commitcoach: %s was already sent; its quiz is waiting: %s\n", short(oid), res.QuizURL)
+		fmt.Fprintf(stderr, "nanicommit: %s was already sent; its quiz is waiting: %s\n", short(oid), res.QuizURL)
 	default:
-		fmt.Fprintf(stderr, "commitcoach: %d questions are ready for %s: %s\n", res.QuestionCount, short(oid), res.QuizURL)
+		fmt.Fprintf(stderr, "nanicommit: %d questions are ready for %s: %s\n", res.QuestionCount, short(oid), res.QuizURL)
 	}
 }
 
@@ -107,13 +107,13 @@ func runHookPrePush(args []string, stdin io.Reader, stderr io.Writer) int {
 		return exitOK // nothing new to push (deletes only, or everything is upstream)
 	}
 	if len(shas) > maxPushCheckSHAs {
-		fmt.Fprintf(stderr, "commitcoach: %d commits are being pushed; only the newest %d are checked\n", len(shas), maxPushCheckSHAs)
+		fmt.Fprintf(stderr, "nanicommit: %d commits are being pushed; only the newest %d are checked\n", len(shas), maxPushCheckSHAs)
 		shas = shas[:maxPushCheckSHAs]
 	}
 
 	cfg, err := backend.LoadConfig(ctx, repo)
 	if errors.Is(err, backend.ErrNotConfigured) {
-		fmt.Fprintf(stderr, "commitcoach: note: the push was allowed without a check, because %v\n", err)
+		fmt.Fprintf(stderr, "nanicommit: note: the push was allowed without a check, because %v\n", err)
 		return exitOK
 	}
 	if err != nil {
@@ -127,27 +127,16 @@ func runHookPrePush(args []string, stdin io.Reader, stderr io.Writer) int {
 	check, err := backend.New(cfg).CheckPush(ctx, id, shas)
 	if err != nil {
 		printBlockBanner(stderr)
-		fmt.Fprintf(stderr, "commitcoach: the push was blocked, because the pass state could not be confirmed: %v\n", err)
+		fmt.Fprintf(stderr, "nanicommit: the push was blocked, because the pass state could not be confirmed: %v\n", err)
 		return exitError
 	}
 	if check.Allowed {
-		fmt.Fprintf(stderr, "commitcoach: all %d commit(s) have passed their quizzes; pushing\n", len(shas))
+		fmt.Fprintf(stderr, "nanicommit: all %d commit(s) have passed their quizzes; pushing\n", len(shas))
 		return exitOK
 	}
 
+	// Only Ponta's banner: the commits and quiz URLs are not listed here.
 	printBlockBanner(stderr)
-	fmt.Fprintf(stderr, "commitcoach: the push was blocked; %d commit(s) have not passed their quiz yet:\n", len(check.PendingCommits))
-	for _, p := range check.PendingCommits {
-		switch {
-		case p.Reason == "missing":
-			fmt.Fprintf(stderr, "  %s  not sent yet; run: commitcoach send --commit %s\n", short(p.CommitSHA), short(p.CommitSHA))
-		case p.QuizURL != nil:
-			fmt.Fprintf(stderr, "  %s  answer its quiz: %s\n", short(p.CommitSHA), *p.QuizURL)
-		default:
-			fmt.Fprintf(stderr, "  %s  has not passed its quiz\n", short(p.CommitSHA))
-		}
-	}
-	fmt.Fprintln(stderr, "commitcoach: answer the quizzes and push again")
 	return exitError
 }
 
