@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// Payload is the JSON document commitcoach publishes for one commit. See
+// Payload is the JSON document nanicommit publishes for one commit. See
 // docs/commit-payload.schema.json.
 type Payload struct {
 	// RepositoryID is the UUID under which the backend knows the repository.

@@ -1,4 +1,4 @@
-// PROPOSED backend API contract for the quiz part of CommitCoach.
+// PROPOSED backend API contract for the quiz part of nanicommit.
 // Nothing here is implemented server-side yet — this file doubles as the
 // draft the backend can implement against. Note that the correct choice is
 // deliberately NOT part of QuizQuestion: a real API must not ship answers to

@@ -92,7 +92,7 @@ func TestLoadIgnoresOtherScopesAndRejectsBadValues(t *testing.T) {
 	r := testutil.NewRepo(t)
 	ctx := context.Background()
 	global := filepath.Join(t.TempDir(), "gitconfig")
-	os.WriteFile(global, []byte("[commitcoach]\n\trepositoryId = "+idA+"\n"), 0o600)
+	os.WriteFile(global, []byte("[nanicommit]\n\trepositoryId = "+idA+"\n"), 0o600)
 	t.Setenv("GIT_CONFIG_GLOBAL", global)
 	repo, err := gitrepo.Open(ctx, r.Dir)
 	if err != nil {

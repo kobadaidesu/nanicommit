@@ -20,6 +20,11 @@ def quiz_url(quiz_id: UUID) -> str:
     return f"{get_settings().web_base_url.rstrip('/')}/quizzes/{quiz_id}"
 
 
+def talk_url(commit_id: UUID) -> str:
+    """ぽんたと commit をふりかえるページの URL（commit した直後に CLI がブラウザで開く）。"""
+    return f"{get_settings().web_base_url.rstrip('/')}/talk/{commit_id}"
+
+
 async def ensure_repository_owner(conn: AsyncConnection, repository_id: UUID, user_id: UUID) -> None:
     """repository が user のものでなければ 404。別ユーザーのものか無いかは区別しない。"""
     cur = await conn.execute(

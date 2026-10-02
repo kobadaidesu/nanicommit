@@ -1,5 +1,5 @@
 // /connect: CLI とアカウントを繋ぐページ（design.md 4.1）。
-// GitHub でログインし、表示された user_id を commitcoach init に渡してもらう。
+// GitHub でログインし、表示された user_id を nanicommit init に渡してもらう。
 import { useEffect, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase, supabaseConfigured } from '../lib/supabase'
@@ -45,7 +45,7 @@ export function ConnectPage() {
   }
 
   const userId = session?.user.id
-  const initCommand = `commitcoach init --repository-id <リポジトリ登録で得たUUID> --backend-url http://localhost:8100 --user-id ${userId ?? ''}`
+  const initCommand = `nanicommit init --repository-id <リポジトリ登録で得たUUID> --backend-url http://localhost:8100 --user-id ${userId ?? ''}`
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
@@ -53,7 +53,7 @@ export function ConnectPage() {
         <div className="mb-6 flex items-center justify-center gap-3">
           <LogoIcon className="h-10 w-10" />
           <div>
-            <div className="text-xl font-bold text-gray-900">CommitCoach</div>
+            <div className="text-xl font-bold text-gray-900">nanicommit</div>
             <div className="text-xs text-gray-500">{uiMeta.tagline}</div>
           </div>
         </div>
@@ -71,7 +71,7 @@ export function ConnectPage() {
               <h1 className="text-lg font-bold text-gray-900">CLI とアカウントを接続</h1>
               <p className="mt-2 text-sm leading-relaxed text-gray-600">
                 GitHub でログインすると、あなたの user_id が表示されます。
-                それを手元の commitcoach init に渡すと、commit ごとの問題生成と push
+                それを手元の nanicommit init に渡すと、commit ごとの問題生成と push
                 前の合格チェックが有効になります。
               </p>
               <button

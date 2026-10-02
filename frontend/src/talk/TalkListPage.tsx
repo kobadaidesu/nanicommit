@@ -58,7 +58,7 @@ export function TalkListPage() {
         <section className="talk-card talk-notice">
           <img src={poseSrc('sleep')} alt="" />
           <h2 className="talk-maru">まだ commit がないよ</h2>
-          <p className="talk-sub">commitcoach を init したリポジトリで commit すると、ここに出てくるよ。</p>
+          <p className="talk-sub">nanicommit を init したリポジトリで commit すると、ここに出てくるよ。</p>
         </section>
       ) : (
         <div className="talk-list">

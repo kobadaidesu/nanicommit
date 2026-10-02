@@ -105,7 +105,7 @@ func TestInitRegistersRepository(t *testing.T) {
 		reqs[0].Body["name"] != filepath.Base(r.Dir) || reqs[0].Body["repository_id"] != nil {
 		t.Errorf("requests: %+v", reqs)
 	}
-	if got := strings.TrimSpace(r.Git("config", "--local", "--get", "commitcoach.repositoryId")); got != testID {
+	if got := strings.TrimSpace(r.Git("config", "--local", "--get", "nanicommit.repositoryId")); got != testID {
 		t.Errorf("saved ID = %q", got)
 	}
 
@@ -132,7 +132,7 @@ func TestInitRegistersRepository(t *testing.T) {
 	before, _ := os.ReadFile(cfg)
 	res = cc(t, r, "", "init", "--backend-url", b.URL, "--user-id", otherUser)
 	if res.code != 1 || !strings.Contains(res.stderr, "not registered to this user") ||
-		!strings.Contains(res.stderr, "git config --local --unset commitcoach.repositoryId") {
+		!strings.Contains(res.stderr, "git config --local --unset nanicommit.repositoryId") {
 		t.Errorf("init as another user: %+v", res)
 	}
 	if after, _ := os.ReadFile(cfg); !bytes.Equal(before, after) {
@@ -168,7 +168,7 @@ func TestInitRecoversRegistration(t *testing.T) {
 	if reqs := b.take(); len(reqs) != 1 || reqs[0].Body["repository_id"] != testID {
 		t.Errorf("requests: %+v", reqs)
 	}
-	if got := strings.TrimSpace(r.Git("config", "--local", "--get", "commitcoach.repositoryId")); got != testID {
+	if got := strings.TrimSpace(r.Git("config", "--local", "--get", "nanicommit.repositoryId")); got != testID {
 		t.Errorf("saved ID = %q", got)
 	}
 }
@@ -210,7 +210,7 @@ func TestInitRegisteredButHookConflicts(t *testing.T) {
 	// The repository is registered before the hooks are installed, so the
 	// message must hand over the new ID instead of claiming nothing changed.
 	if res.code != 1 || !strings.Contains(res.stderr, "registered in the backend") ||
-		!strings.Contains(res.stderr, "git config --local commitcoach.repositoryId "+testID) {
+		!strings.Contains(res.stderr, "git config --local nanicommit.repositoryId "+testID) {
 		t.Errorf("init: %+v", res)
 	}
 	if len(b.take()) != 1 {

@@ -21,7 +21,7 @@ const (
 // given its common git directory (shared by all worktrees). It lives inside
 // the git directory, so it is never part of the working tree.
 func EventsDir(commonDir string) string {
-	return filepath.Join(commonDir, "commitcoach", "events")
+	return filepath.Join(commonDir, "nanicommit", "events")
 }
 
 // EventPath returns where the snapshot of commit oid is stored.

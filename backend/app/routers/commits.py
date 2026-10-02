@@ -21,7 +21,7 @@ from app.config import Settings, get_settings
 from app.db import Conn
 from app.learning.errors import GenerationError
 from app.learning.runner import QuizGenerator, get_quiz_generator, run_generation
-from app.routers.common import ensure_repository_owner, quiz_url
+from app.routers.common import ensure_repository_owner, quiz_url, talk_url
 from app.schemas import MAX_DIFF_BYTES, MAX_FILES, QUESTION_COUNT, CommitIn, CommitOut
 
 logger = logging.getLogger(__name__)
@@ -47,7 +47,11 @@ def _existing_response(row: dict, body: CommitIn) -> CommitOut:
     if (row["message"], row["files"], row["diff"]) != (body.message, body.files, body.diff):
         raise HTTPException(status.HTTP_409_CONFLICT, "Commit already registered with different content")
     return CommitOut(
-        quiz_id=row["id"], quiz_url=quiz_url(row["id"]), status=row["status"], question_count=QUESTION_COUNT
+        quiz_id=row["id"],
+        quiz_url=quiz_url(row["id"]),
+        talk_url=talk_url(row["id"]),
+        status=row["status"],
+        question_count=QUESTION_COUNT,
     )
 
 
@@ -120,5 +124,9 @@ async def receive_commit(
         return _existing_response(existing, body)
 
     return CommitOut(
-        quiz_id=inserted["id"], quiz_url=quiz_url(inserted["id"]), status="ready", question_count=QUESTION_COUNT
+        quiz_id=inserted["id"],
+        quiz_url=quiz_url(inserted["id"]),
+        talk_url=talk_url(inserted["id"]),
+        status="ready",
+        question_count=QUESTION_COUNT,
     )

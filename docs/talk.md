@@ -93,11 +93,13 @@ cd frontend && npm install && npm run dev
 （CLI の入れ方は [hooks/README.md](../hooks/README.md)）。
 
 ```
-commitcoach init --backend-url http://localhost:8100 --user-id <あなたの user_id>
+nanicommit init --backend-url http://localhost:8100 --user-id <あなたの user_id>
 ```
 
 init がリポジトリをバックエンドに自動で登録し、発行された repository_id を保存します（CLI をこの変更以降のコードでビルドし直してください）。
 2 回目以降の init で再登録はされません。
+
+設定が済むと、**commit するたびにこの `/talk/<commit_id>` ページがブラウザで自動的に開きます**（開きたくないときは `NANICOMMIT_NO_BROWSER=1`）。
 
 **古い CLI を使う場合**（自動登録が無いので、先にリポジトリ ID を発行してから init する）
 
@@ -105,7 +107,7 @@ init がリポジトリをバックエンドに自動で登録し、発行され
 curl -s -X POST http://localhost:8100/api/v1/repositories -H "X-User-Id: <あなたの user_id>" -H "Content-Type: application/json" -d "{\"name\": \"$(basename "$PWD")\", \"learning_base_sha\": \"$(git rev-parse HEAD)\"}"
 ```
 ```
-commitcoach init --repository-id <返ってきた repository_id> --backend-url http://localhost:8100 --user-id <あなたの user_id>
+nanicommit init --repository-id <返ってきた repository_id> --backend-url http://localhost:8100 --user-id <あなたの user_id>
 ```
 
 （commit が 1 つも無いリポジトリでは `learning_base_sha` を `null` にします。）
@@ -153,7 +155,7 @@ commitcoach init --repository-id <返ってきた repository_id> --backend-url h
 | 「ぽんたの返事を作れませんでした」 | Claude の呼び出しに失敗した（ログイン切れ・利用枠の上限・タイムアウト 120 秒など）。少し待って再送する。詳しい理由はバックエンドのログに出ます |
 | 「ぽんたはまだ前の返事を考えています」 | 同じ人が同時に送れるのは 1 つまで。返事が来てから送る（別タブで同時に話している場合も） |
 | 「ログインが必要だよ」「ログインが切れたみたい」 | `/connect` で GitHub ログインしてから `/talk` を開き直す |
-| 一覧に commit が出ない | ① そのリポジトリで init していない ② commit したときバックエンドが止まっていた ③ CLI の user_id と、ブラウザでログインしている人が違う。`commitcoach status` で設定を確認する |
+| 一覧に commit が出ない | ① そのリポジトリで init していない ② commit したときバックエンドが止まっていた ③ CLI の user_id と、ブラウザでログインしている人が違う。`nanicommit status` で設定を確認する |
 | 「この commit は見つからないよ」 | URL の ID が違うか、他の人の commit。自分の commit しか開けません |
 | 画面が出ない・API に繋がらない | バックエンド（8100）が動いているか、`frontend/.env.local` の `VITE_API_BASE_URL`、`backend/.env` の `CORS_ORIGINS` を確認する |
 

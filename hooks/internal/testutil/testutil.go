@@ -36,7 +36,7 @@ func run(m *testing.M, setup func() (func(), error)) int {
 			return 1
 		}
 	}
-	home, err := os.MkdirTemp("", "commitcoach-test-home-")
+	home, err := os.MkdirTemp("", "nanicommit-test-home-")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
@@ -56,6 +56,8 @@ func run(m *testing.M, setup func() (func(), error)) int {
 	os.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	os.Setenv("GIT_CONFIG_GLOBAL", global)
 	os.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	// Never open a browser from the post-commit hook during tests.
+	os.Setenv("NANICOMMIT_NO_BROWSER", "1")
 	return m.Run()
 }
 

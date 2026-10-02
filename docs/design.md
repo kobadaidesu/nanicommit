@@ -2,7 +2,7 @@
 
 Go・Next.js・FastAPI・Supabase Auth / PostgreSQLを使う、3人のハッカソン向けPoCの設計案です。
 **自分のcommitから問題を作り、Webで全問正解すると、通常のgit pushを続行できる**ことを実現します。
-本書のJSON定義（6章）を、CLI・バックエンド・フロントの契約として共有します。CLIコマンド名は説明上 `nanicommit` とします。既存実装の `commitcoach` を直ちに改名する必要はありません。
+本書のJSON定義（6章）を、CLI・バックエンド・フロントの契約として共有します。CLIコマンド名は `nanicommit` です。
 
 > 問題生成はAIモデルのHTTP APIを直接呼びません。FastAPIをMCP Clientとして、問題生成機能を提供するMCP Serverへ接続します。CLI/WebとFastAPIの通信は引き続き通常のHTTP APIを使います。
 
@@ -507,12 +507,13 @@ CLI向けAPIは `X-User-Id`、問題取得・回答はWebのSupabase JWTを受�
 {
   "quiz_id": "b7e2d4c1-5a3f-4e8b-9d2c-6f1a0e7b3c58",
   "quiz_url": "https://app.example.com/quizzes/b7e2d4c1-5a3f-4e8b-9d2c-6f1a0e7b3c58",
+  "talk_url": "https://app.example.com/talk/b7e2d4c1-5a3f-4e8b-9d2c-6f1a0e7b3c58",
   "status": "ready",
   "question_count": 3
 }
 ```
 
-登録済みの再送では問題を再生成せず、既存の問題URLと現在のstatusを返します。合格済みならstatusはpassedです。同時送信で生成が重なっても、DBの一意制約により保存は1セットにします。
+`talk_url` はぽんたとふりかえるページで、post-commit フックが送信成功後にブラウザで開きます。登録済みの再送では問題を再生成せず、既存の問題URLと現在のstatusを返します。合格済みならstatusはpassedです。同時送信で生成が重なっても、DBの一意制約により保存は1セットにします。
 同じSHAなのにmessage・files・diffが異なる再送は409とし、保存済み問題を黙って上書きしません。branchは収集時の情報なので、この比較から除外します。
 
 ### D2：MCPによる問題生成

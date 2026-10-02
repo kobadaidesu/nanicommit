@@ -47,8 +47,8 @@ func TestPushBlockBanner(t *testing.T) {
 	r.Write("a.txt", "x\n")
 	r.CommitAll("one")
 	// Configure the backend only now, so that the commit above is not sent.
-	r.Git("config", "--local", "commitcoach.backendUrl", srv.URL)
-	r.Git("config", "--local", "commitcoach.userId", testUser)
+	r.Git("config", "--local", "nanicommit.backendUrl", srv.URL)
+	r.Git("config", "--local", "nanicommit.userId", testUser)
 
 	_, stderr, err := r.GitErr("push", remote, "HEAD:refs/heads/main")
 	if err == nil {
@@ -56,7 +56,7 @@ func TestPushBlockBanner(t *testing.T) {
 	}
 	// The hook's stderr is a pipe here, so the banner is plain text.
 	if !strings.Contains(stderr, strings.Repeat("絶対に逃さないポン\n", 9)) || strings.Count(stderr, "絶対に逃さないポン") != 9 || strings.Contains(stderr, "\x1b[") ||
-		strings.Contains(stderr, "nanicommit:") || strings.Contains(stderr, "commitcoach") {
+		strings.Contains(stderr, "nanicommit") {
 		t.Errorf("blocked push stderr:\n%q", stderr)
 	}
 

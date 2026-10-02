@@ -71,7 +71,7 @@ Render の無料プランは、しばらくアクセスが無いと停止しま�
 | フロントのホスティング先の環境変数 | バックエンドの URL | `https://<サービス名>.onrender.com` |
 | CLI（hooks）の設定 | バックエンドの URL | `https://<サービス名>.onrender.com` |
 
-フロントは環境変数 `VITE_API_BASE_URL`、CLI は `commitcoach init --backend-url` で設定します。
+フロントは環境変数 `VITE_API_BASE_URL`、CLI は `nanicommit init --backend-url` で設定します。
 
 ## API
 
@@ -194,6 +194,7 @@ async def get_quiz(quiz_id: UUID, user_id: WebUserId, conn: Conn):
 | `Conn` | [app/db.py](app/db.py) | リクエスト1回分の DB 接続（psycopg 3 非同期、行は dict）。正常終了で commit、例外で rollback |
 | `not_found()` | [app/routers/common.py](app/routers/common.py) | 404 の例外 |
 | `quiz_url(id)` | [app/routers/common.py](app/routers/common.py) | 問題ページの URL |
+| `talk_url(id)` | [app/routers/common.py](app/routers/common.py) | ぽんたとふりかえるページの URL（commit 後に CLI がブラウザで開く） |
 | `QUESTION_COUNT` など | [app/schemas.py](app/schemas.py) | 問題数・選択肢数の定数 |
 
 回答処理（D4）の注意：

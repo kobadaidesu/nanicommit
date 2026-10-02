@@ -74,6 +74,7 @@ def test_commit_creates_quiz_and_resend_returns_same(client, db, user):
     assert body["status"] == "ready"
     assert body["question_count"] == 3
     assert body["quiz_url"] == f"https://app.example.com/quizzes/{body['quiz_id']}"
+    assert body["talk_url"] == f"https://app.example.com/talk/{body['quiz_id']}"
     count = db.execute("select count(*) from public.questions where commit_id = %s", (body["quiz_id"],)).fetchone()
     assert count == (3,)
 

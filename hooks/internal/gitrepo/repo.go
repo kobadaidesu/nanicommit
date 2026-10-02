@@ -87,7 +87,7 @@ func checkGitVersion(ctx context.Context, run *Runner) (string, error) {
 		major, _ := strconv.Atoi(m[1])
 		minor, _ := strconv.Atoi(m[2])
 		if major < minGitMajor || major == minGitMajor && minor < minGitMinor {
-			return v, fmt.Errorf("%s is too old: commitcoach needs Git %d.%d or later", v, minGitMajor, minGitMinor)
+			return v, fmt.Errorf("%s is too old: nanicommit needs Git %d.%d or later", v, minGitMajor, minGitMinor)
 		}
 	}
 	return v, nil

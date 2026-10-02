@@ -15,12 +15,12 @@ import (
 )
 
 // ConfigKey is the local Git configuration key holding the repository ID.
-const ConfigKey = "commitcoach.repositoryId"
+const ConfigKey = "nanicommit.repositoryId"
 
 var uuidRE = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 // ErrNotSet means no repository ID was given and none is saved.
-var ErrNotSet = errors.New("repository_id is not set: save it with \"commitcoach init --repository-id <UUID>\" " +
+var ErrNotSet = errors.New("repository_id is not set: save it with \"nanicommit init --repository-id <UUID>\" " +
 	"(or git config --local " + ConfigKey + " <UUID>), or pass --repository-id to export")
 
 // Normalize checks that s is a UUID in the 8-4-4-4-12 hexadecimal form and

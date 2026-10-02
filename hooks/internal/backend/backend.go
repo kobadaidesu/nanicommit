@@ -4,11 +4,11 @@
 //
 // The backend location and the user are read from Git configuration:
 //
-//	commitcoach.backendUrl  e.g. http://localhost:8100
-//	commitcoach.userId      UUID shown by the web login
+//	nanicommit.backendUrl  e.g. http://localhost:8100
+//	nanicommit.userId      UUID shown by the web login
 //
 // Both can live in any scope; the effective (last) value wins, like Git
-// itself. "commitcoach init --backend-url ... --user-id ..." saves them in
+// itself. "nanicommit init --backend-url ... --user-id ..." saves them in
 // the local scope.
 package backend
 
@@ -28,9 +28,9 @@ import (
 
 const (
 	// ConfigKeyURL is the Git configuration key of the backend base URL.
-	ConfigKeyURL = "commitcoach.backendUrl"
+	ConfigKeyURL = "nanicommit.backendUrl"
 	// ConfigKeyUser is the Git configuration key of the user ID.
-	ConfigKeyUser = "commitcoach.userId"
+	ConfigKeyUser = "nanicommit.userId"
 
 	userIDHeader = "X-User-Id"
 	// maxBodyBytes bounds how much of a response is read; real responses
@@ -40,7 +40,7 @@ const (
 
 // ErrNotConfigured means the backend URL or the user ID is missing.
 var ErrNotConfigured = errors.New("the backend is not configured: run " +
-	`"commitcoach init --backend-url <URL> --user-id <UUID>" (or set ` +
+	`"nanicommit init --backend-url <URL> --user-id <UUID>" (or set ` +
 	ConfigKeyURL + " and " + ConfigKeyUser + " with git config)")
 
 // Config is where and as whom to talk to the backend.
@@ -95,7 +95,8 @@ func New(cfg Config) *Client {
 type CommitResult struct {
 	QuizID        string `json:"quiz_id"`
 	QuizURL       string `json:"quiz_url"`
-	Status        string `json:"status"` // "ready" or "passed"
+	TalkURL       string `json:"talk_url"` // opened in the browser after a commit
+	Status        string `json:"status"`   // "ready" or "passed"
 	QuestionCount int    `json:"question_count"`
 	// AlreadyRegistered means the commit was sent before and the existing
 	// quiz was returned (HTTP 200 instead of 201).

@@ -25,7 +25,7 @@ flowchart LR
 ```
 
 1. 開発者が `git commit` する
-2. post-commit フックが Go CLI（`commitcoach`）を起動する
+2. post-commit フックが Go CLI（`nanicommit`）を起動する
 3. CLI が commit を6項目の JSON にする（スキーマ：`docs/commit-payload.schema.json`）
 4. CLI が JSON をバックエンドの `POST /api/v1/commits` へ送る
 5. バックエンドが問題を3問生成し、Supabase PostgreSQL に保存する
@@ -38,11 +38,11 @@ flowchart LR
 - ディレクトリ：`hooks/`
 - 言語：Go 1.22（`hooks/go.mod`）
 - 外部依存：なし（`go.sum` なし）
-- バイナリ名：`commitcoach`（`hooks/cmd/commitcoach/main.go`）
+- バイナリ名：`nanicommit`（`hooks/cmd/nanicommit/main.go`）
 - コマンド：`init`・`hook post-commit`・`export`・`status`・`uninstall`
 - Git 操作：`git` コマンドをサブプロセスで実行する（`hooks/internal/gitrepo/`）
 - 出力形式：6項目の JSON（`repository_id`・`commit_sha`・`branch`・`message`・`files`・`diff`）
-- ローカル保存先：`.git/commitcoach/events/`
+- ローカル保存先：`.git/nanicommit/events/`
 - テスト：`go test ./...`
 
 ## フロントエンド
