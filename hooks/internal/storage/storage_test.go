@@ -24,13 +24,13 @@ func TestSaveEventPermissionsAndReplace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := filepath.Join(common, "commitcoach", "events", oid+".json"); path != want {
+	if want := filepath.Join(common, "nanicommit", "events", oid+".json"); path != want {
 		t.Errorf("path = %s, want %s", path, want)
 	}
 	if runtime.GOOS != "windows" {
 		for p, want := range map[string]os.FileMode{
-			filepath.Join(common, "commitcoach"):           0o700,
-			filepath.Join(common, "commitcoach", "events"): 0o700,
+			filepath.Join(common, "nanicommit"):           0o700,
+			filepath.Join(common, "nanicommit", "events"): 0o700,
 			path: 0o600,
 		} {
 			fi, err := os.Stat(p)

@@ -1,11 +1,11 @@
 // Package hooks installs, inspects and removes the post-commit hook that
-// runs "commitcoach hook post-commit".
+// runs "nanicommit hook post-commit".
 //
-// The hook is a thin shell script that only calls the commitcoach binary by
+// The hook is a thin shell script that only calls the nanicommit binary by
 // absolute path. It carries a marker line and the binary path, so a hook
-// written by commitcoach can be told apart from other hooks, and an edited
+// written by nanicommit can be told apart from other hooks, and an edited
 // one can be detected by regenerating the script and comparing bytes.
-// commitcoach never changes Git configuration and never touches a hook it
+// nanicommit never changes Git configuration and never touches a hook it
 // did not write or that has been edited since.
 package hooks
 
@@ -30,12 +30,12 @@ const (
 	PrePushHookName = "pre-push"
 )
 
-// ManagedHooks lists every hook commitcoach installs, in install order.
+// ManagedHooks lists every hook nanicommit installs, in install order.
 var ManagedHooks = []string{HookName, PrePushHookName}
 
 const (
-	markerLine = "# commitcoach-managed-hook: v1"
-	exePrefix  = "# commitcoach-executable: "
+	markerLine = "# nanicommit-managed-hook: v1"
+	exePrefix  = "# nanicommit-executable: "
 	hookPerm   = fs.FileMode(0o755)
 	// Hook files larger than this are not read; they cannot be ours.
 	maxHookBytes = 1 << 20
@@ -54,36 +54,36 @@ func ScriptFor(name, exe string) []byte {
 	b.WriteString(exePrefix + strconv.Quote(exe) + "\n")
 	if name == PrePushHookName {
 		b.WriteString(`#
-# Created by "commitcoach init". Remove it with "commitcoach uninstall".
-# If you edit this file, commitcoach will no longer update or remove it.
+# Created by "nanicommit init". Remove it with "nanicommit uninstall".
+# If you edit this file, nanicommit will no longer update or remove it.
 #
 # This hook asks the learning backend whether every commit being pushed has
 # passed its quiz. A non-zero exit makes git abort the push.
 `)
-		b.WriteString("commitcoach_bin=" + shellQuote(exe) + "\n")
-		b.WriteString(`if [ -x "$commitcoach_bin" ]; then
-	exec "$commitcoach_bin" hook pre-push "$@"
+		b.WriteString("nanicommit_bin=" + shellQuote(exe) + "\n")
+		b.WriteString(`if [ -x "$nanicommit_bin" ]; then
+	exec "$nanicommit_bin" hook pre-push "$@"
 fi
-printf 'commitcoach: the push was blocked because the commitcoach executable is missing: %s\n' "$commitcoach_bin" >&2
-printf 'commitcoach: build or install it again and rerun "commitcoach init", or delete this hook: %s\n' "$0" >&2
+printf 'nanicommit: the push was blocked because the nanicommit executable is missing: %s\n' "$nanicommit_bin" >&2
+printf 'nanicommit: build or install it again and rerun "nanicommit init", or delete this hook: %s\n' "$0" >&2
 exit 1
 `)
 		return []byte(b.String())
 	}
 	b.WriteString(`#
-# Created by "commitcoach init". Remove it with "commitcoach uninstall".
-# If you edit this file, commitcoach will no longer update or remove it.
+# Created by "nanicommit init". Remove it with "nanicommit uninstall".
+# If you edit this file, nanicommit will no longer update or remove it.
 #
 # The commit already exists when this hook runs. Recording its snapshot may
 # fail, but that never undoes or blocks the commit, so this hook exits 0.
 `)
-	b.WriteString("commitcoach_bin=" + shellQuote(exe) + "\n")
-	b.WriteString(`if [ -x "$commitcoach_bin" ]; then
-	"$commitcoach_bin" hook post-commit ||
-		printf 'commitcoach: warning: the commit was created, but its snapshot was not recorded (exit status %s)\n' "$?" >&2
+	b.WriteString("nanicommit_bin=" + shellQuote(exe) + "\n")
+	b.WriteString(`if [ -x "$nanicommit_bin" ]; then
+	"$nanicommit_bin" hook post-commit ||
+		printf 'nanicommit: warning: the commit was created, but its snapshot was not recorded (exit status %s)\n' "$?" >&2
 else
-	printf 'commitcoach: warning: the commit was created, but the commitcoach executable is missing: %s\n' "$commitcoach_bin" >&2
-	printf 'commitcoach: build or install it again and rerun "commitcoach init", or delete this hook: %s\n' "$0" >&2
+	printf 'nanicommit: warning: the commit was created, but the nanicommit executable is missing: %s\n' "$nanicommit_bin" >&2
+	printf 'nanicommit: build or install it again and rerun "nanicommit init", or delete this hook: %s\n' "$0" >&2
 fi
 exit 0
 `)
@@ -91,7 +91,7 @@ exit 0
 }
 
 // ManualLine is a shell line that users can add to their own post-commit
-// hook to call commitcoach.
+// hook to call nanicommit.
 func ManualLine(exe string) string { return ManualLineFor(HookName, exe) }
 
 // ManualLineFor is ManualLine for any managed hook.
@@ -99,7 +99,7 @@ func ManualLineFor(name, exe string) string {
 	if name == PrePushHookName {
 		return shellQuote(exe) + ` hook pre-push "$@" || exit 1`
 	}
-	return shellQuote(exe) + ` hook post-commit || echo 'commitcoach: warning: the commit was created, but its snapshot was not recorded' >&2`
+	return shellQuote(exe) + ` hook post-commit || echo 'nanicommit: warning: the commit was created, but its snapshot was not recorded' >&2`
 }
 
 // shellQuote quotes s for POSIX sh. Inside single quotes nothing is special
@@ -113,21 +113,21 @@ type State string
 
 const (
 	NotInstalled State = "not_installed" // no hook file
-	Installed    State = "installed"     // written by commitcoach and unchanged
-	Modified     State = "modified"      // written by commitcoach, edited since
-	Foreign      State = "foreign"       // not written by commitcoach
+	Installed    State = "installed"     // written by nanicommit and unchanged
+	Modified     State = "modified"      // written by nanicommit, edited since
+	Foreign      State = "foreign"       // not written by nanicommit
 )
 
 // HookFile describes one managed hook file.
 type HookFile struct {
 	Path  string
 	State State
-	// Executable is the binary a commitcoach hook runs ("" if unknown).
+	// Executable is the binary a nanicommit hook runs ("" if unknown).
 	Executable string
 	Mode       fs.FileMode
-	// CallsCommitcoach reports that a foreign hook appears to call
-	// "commitcoach hook <name>" (manual integration).
-	CallsCommitcoach bool
+	// CallsNanicommit reports that a foreign hook appears to call
+	// "nanicommit hook <name>" (manual integration).
+	CallsNanicommit bool
 }
 
 func inspectFile(name, path string) (HookFile, error) {
@@ -149,7 +149,7 @@ func inspectFile(name, path string) (HookFile, error) {
 		return h, err
 	}
 	h.State, h.Executable = classify(name, data)
-	h.CallsCommitcoach = h.State == Foreign && bytes.Contains(data, []byte("hook "+name)) && bytes.Contains(data, []byte("commitcoach"))
+	h.CallsNanicommit = h.State == Foreign && bytes.Contains(data, []byte("hook "+name)) && bytes.Contains(data, []byte("nanicommit"))
 	return h, nil
 }
 
@@ -257,11 +257,11 @@ type Action string
 
 const (
 	Created   Action = "created"
-	Updated   Action = "updated"   // a pristine commitcoach hook now runs a different binary
+	Updated   Action = "updated"   // a pristine nanicommit hook now runs a different binary
 	Unchanged Action = "unchanged" // the same hook was already installed
 	Removed   Action = "removed"
 	Absent    Action = "absent"       // uninstall: there was no hook file
-	LeftAlone Action = "left_foreign" // uninstall: the hook is not commitcoach's
+	LeftAlone Action = "left_foreign" // uninstall: the hook is not nanicommit's
 )
 
 // Result reports what Install or Uninstall did.
@@ -287,7 +287,7 @@ func InstallHook(ctx context.Context, repo *gitrepo.Repo, exe, name string) (*Re
 		return nil, errors.New("this is a bare repository: it has no working tree, so git hooks never run in it")
 	}
 	if repo.WorkTree == "" {
-		return nil, errors.New("run commitcoach init from the working tree of the repository, not from inside its git directory")
+		return nil, errors.New("run nanicommit init from the working tree of the repository, not from inside its git directory")
 	}
 	if !filepath.IsAbs(exe) {
 		return nil, fmt.Errorf("executable path %q is not absolute", exe)
@@ -302,7 +302,7 @@ func InstallHook(ctx context.Context, repo *gitrepo.Repo, exe, name string) (*Re
 
 	if len(st.HooksPath) > 0 {
 		c := &ConflictError{
-			Reason:   "core.hooksPath is set, so Git runs hooks from " + st.EffectiveHooksDir + " instead of " + st.HooksDir + "; commitcoach does not change this setting or that directory",
+			Reason:   "core.hooksPath is set, so Git runs hooks from " + st.EffectiveHooksDir + " instead of " + st.HooksDir + "; nanicommit does not change this setting or that directory",
 			HookFile: filepath.Join(st.EffectiveHooksDir, name),
 			Line:     ManualLineFor(name, exe),
 		}
@@ -345,13 +345,13 @@ func InstallHook(ctx context.Context, repo *gitrepo.Repo, exe, name string) (*Re
 
 	case Modified:
 		return nil, &ConflictError{
-			Reason:   "the " + name + " hook was created by commitcoach but has been edited since; it was left unchanged",
+			Reason:   "the " + name + " hook was created by nanicommit but has been edited since; it was left unchanged",
 			HookFile: h.Path,
 			Line:     ManualLineFor(name, exe),
 		}
 	default:
 		return nil, &ConflictError{
-			Reason:   "a " + name + " hook that was not created by commitcoach already exists; it was left unchanged",
+			Reason:   "a " + name + " hook that was not created by nanicommit already exists; it was left unchanged",
 			HookFile: h.Path,
 			Line:     ManualLineFor(name, exe),
 		}
@@ -363,7 +363,7 @@ func InstallHook(ctx context.Context, repo *gitrepo.Repo, exe, name string) (*Re
 // which fails if the name exists. Where hard links are not supported, an
 // exclusive create is used instead.
 func createHook(path string, content []byte) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".commitcoach-"+filepath.Base(path)+"-*")
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".nanicommit-"+filepath.Base(path)+"-*")
 	if err != nil {
 		return err
 	}
@@ -392,9 +392,9 @@ func createHook(path string, content []byte) error {
 	return nil
 }
 
-// replaceHook atomically replaces a hook file that commitcoach wrote.
+// replaceHook atomically replaces a hook file that nanicommit wrote.
 func replaceHook(path string, content []byte) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".commitcoach-"+filepath.Base(path)+"-*")
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".nanicommit-"+filepath.Base(path)+"-*")
 	if err != nil {
 		return err
 	}
@@ -420,15 +420,15 @@ func writeAndClose(f *os.File, content []byte) error {
 	return err
 }
 
-// ModifiedHookError means uninstall found a commitcoach hook that has been
+// ModifiedHookError means uninstall found a nanicommit hook that has been
 // edited, and left it in place.
 type ModifiedHookError struct{ Path string }
 
 func (e *ModifiedHookError) Error() string {
-	return e.Path + " was created by commitcoach but has been edited since; it was not removed. Review it and delete it yourself if it is no longer needed"
+	return e.Path + " was created by nanicommit but has been edited since; it was not removed. Review it and delete it yourself if it is no longer needed"
 }
 
-// Uninstall removes the post-commit hook if, and only if, commitcoach wrote
+// Uninstall removes the post-commit hook if, and only if, nanicommit wrote
 // it and it is unchanged. Snapshots are kept.
 func Uninstall(ctx context.Context, repo *gitrepo.Repo) (*Result, error) {
 	return UninstallHook(ctx, repo, HookName)

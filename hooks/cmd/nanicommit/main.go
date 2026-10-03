@@ -1,4 +1,4 @@
-// Command commitcoach turns Git commits into JSON for the learning backend.
+// Command nanicommit turns Git commits into JSON for the learning backend.
 //
 // See README.md for usage.
 package main

@@ -58,7 +58,7 @@ func runExport(args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 	if *output == "" {
-		fmt.Fprintln(stderr, `commitcoach export: --output must be a file path or "-"`)
+		fmt.Fprintln(stderr, `nanicommit export: --output must be a file path or "-"`)
 		return exitUsage
 	}
 
@@ -98,7 +98,7 @@ func runExport(args []string, stdout, stderr io.Writer) int {
 
 func runHook(args []string, stderr io.Writer) int {
 	if len(args) == 0 || (args[0] != "post-commit" && args[0] != "pre-push") {
-		fmt.Fprintln(stderr, "Usage: commitcoach hook {post-commit|pre-push}\n\nRun by the hooks that \"commitcoach init\" installs.")
+		fmt.Fprintln(stderr, "Usage: nanicommit hook {post-commit|pre-push}\n\nRun by the hooks that \"nanicommit init\" installs.")
 		return exitUsage
 	}
 	if args[0] == "pre-push" {
@@ -143,10 +143,11 @@ func sendRecorded(ctx context.Context, repo *gitrepo.Repo, oid string, data []by
 	res, err := backend.New(cfg).SendCommit(ctx, data)
 	if err != nil {
 		fmt.Fprintf(stderr, "nanicommit: warning: the commit was recorded, but not sent: %v\n", err)
-		fmt.Fprintf(stderr, "nanicommit: resend it later with: commitcoach send --commit %s\n", short(oid))
+		fmt.Fprintf(stderr, "nanicommit: resend it later with: nanicommit send --commit %s\n", short(oid))
 		return
 	}
 	printQuiz(stderr, oid, res)
+	openTalk(stderr, res.TalkURL)
 }
 
 // recordHead resolves HEAD once, at the start, and from then on only uses

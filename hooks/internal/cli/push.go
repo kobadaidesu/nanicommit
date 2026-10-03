@@ -62,6 +62,7 @@ func runSend(args []string, stderr io.Writer) int {
 		return fail(stderr, err)
 	}
 	printQuiz(stderr, oid, res)
+	printTalk(stderr, res.TalkURL)
 	return exitOK
 }
 

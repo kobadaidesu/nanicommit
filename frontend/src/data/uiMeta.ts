@@ -5,5 +5,5 @@ export const uiMeta = {
   repo: 'task-manager',
   user: 'tanaka',
   tagline: 'コードを書くたび、もっと強くなる',
-  quote: '「良いコードは、良い問いから生まれる。」 — CommitCoach',
+  quote: '「良いコードは、良い問いから生まれる。」 — nanicommit',
 }

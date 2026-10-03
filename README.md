@@ -1,4 +1,4 @@
-# CommitCoach
+# nanicommit
 
 `git commit` の変更内容を学習問題に変えるサービスのモノレポです。開発者がcommitするたびに、その差分から理解度チェックの問題を生成し、全問正解でpushを許可する——という体験を目指しています。
 
@@ -10,7 +10,7 @@ git commit → post-commitフック（hooks/ のGo CLI） → 6項目のJSON →
 
 | ディレクトリ | 内容 | 状態 |
 |---|---|---|
-| [hooks/](hooks/) | Go製CLI `commitcoach`。post-commitフックを導入し、commitを6項目のJSONにして保存する | 実装済み（[hooks/README.md](hooks/README.md)） |
+| [hooks/](hooks/) | Go製CLI `nanicommit`。post-commitフックを導入し、commitを6項目のJSONにして保存する | 実装済み（[hooks/README.md](hooks/README.md)） |
 | [frontend/](frontend/) | 学習UI（React + Vite + TypeScript + Tailwind）。モックデータで動くUI先行実装 | UIモック実装済み（`cd frontend && npm install && npm run dev`） |
 | [docs/](docs/) | [commit-payload.schema.json](docs/commit-payload.schema.json) — hooks・frontend・バックエンドで共有する6項目JSONのスキーマ | — |
 | [examples/](examples/) | CLIが実際に生成したサンプルJSON | — |

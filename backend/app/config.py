@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     supabase_url: str = ""
     supabase_anon_key: str = ""
 
-    # 問題画面（フロント）の URL。CLI が開く quiz_url の先頭部分になる。
+    # 問題画面（フロント）の URL。CLI が表示する quiz_url と、commit 後に開く talk_url の先頭部分になる。
     web_base_url: str = "http://localhost:3000"
     # バックエンドを呼んでよいフロントの配信元。ブラウザはここに無いページからの呼び出しを止める。
     # 開発中は Next.js（3000）と Vite（5173）のどちらでも動くよう両方許可しておく。

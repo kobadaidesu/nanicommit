@@ -1,4 +1,4 @@
-// Package cli implements the commitcoach subcommands. The internal packages
+// Package cli implements the nanicommit subcommands. The internal packages
 // return errors; only this package prints messages and picks exit codes.
 package cli
 
@@ -26,24 +26,26 @@ const (
 	setupTimeout = 30 * time.Second
 )
 
-const usageText = `commitcoach turns Git commits into JSON for the learning backend.
+const usageText = `nanicommit turns Git commits into JSON for the learning backend.
 
 Usage:
-  commitcoach init --repository-id UUID [--backend-url URL --user-id UUID]
+  nanicommit init --repository-id UUID [--backend-url URL --user-id UUID]
                                     install the post-commit and pre-push hooks in this
                                     repository and save its repository ID (and, when
                                     given, the backend URL and user ID)
-  commitcoach status                show the hook and snapshot setup of this repository
-  commitcoach uninstall             remove the hooks that commitcoach installed
-  commitcoach send [--commit REV]   send the JSON of a commit (default HEAD) to the
+  nanicommit status                show the hook and snapshot setup of this repository
+  nanicommit uninstall             remove the hooks that nanicommit installed
+  nanicommit send [--commit REV]   send the JSON of a commit (default HEAD) to the
                                     backend and print its quiz URL
-  commitcoach export [--commit REV] [--output PATH|-] [--repository-id UUID]
+  nanicommit export [--commit REV] [--output PATH|-] [--repository-id UUID]
                                     write the JSON of a commit (default HEAD)
-  commitcoach hook post-commit      run by the post-commit hook (internal)
-  commitcoach hook pre-push         run by the pre-push hook (internal); blocks the
+  nanicommit hook post-commit      run by the post-commit hook (internal); sends the
+                                    commit and opens its /talk page in the browser
+                                    (set NANICOMMIT_NO_BROWSER=1 to only print the URL)
+  nanicommit hook pre-push         run by the pre-push hook (internal); blocks the
                                     push until every pushed commit passed its quiz
 
-Run "commitcoach <command> -h" for the options of a command.
+Run "nanicommit <command> -h" for the options of a command.
 `
 
 // Run runs the command line args (without the program name) and returns the
@@ -78,10 +80,10 @@ func Run(args []string, stdout, stderr io.Writer) int {
 }
 
 func newFlagSet(name, summary string, stderr io.Writer) *flag.FlagSet {
-	fs := flag.NewFlagSet("commitcoach "+name, flag.ContinueOnError)
+	fs := flag.NewFlagSet("nanicommit "+name, flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() {
-		fmt.Fprintf(stderr, "Usage: commitcoach %s\n\n%s\n", name, summary)
+		fmt.Fprintf(stderr, "Usage: nanicommit %s\n\n%s\n", name, summary)
 		if hasFlags(fs) {
 			fmt.Fprintln(stderr, "\nOptions:")
 			fs.PrintDefaults()

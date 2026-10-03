@@ -13,7 +13,7 @@ export function TopBar({ branch, unlocked }: Props) {
         <div className="flex items-center gap-3">
           <LogoIcon className="h-9 w-9" />
           <div>
-            <div className="text-lg font-bold leading-tight text-gray-900">CommitCoach</div>
+            <div className="text-lg font-bold leading-tight text-gray-900">nanicommit</div>
             <div className="text-xs text-gray-500">{uiMeta.tagline}</div>
           </div>
         </div>

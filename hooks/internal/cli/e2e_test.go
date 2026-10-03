@@ -1,6 +1,6 @@
 package cli_test
 
-// End-to-end tests: they build the commitcoach binary into a directory whose
+// End-to-end tests: they build the nanicommit binary into a directory whose
 // name contains spaces and quotes, install it with "init" into temporary
 // repositories, and let real "git commit" runs start the hook.
 
@@ -38,7 +38,7 @@ func buildBinary() (func(), error) {
 	if runtime.GOOS == "windows" {
 		return nil, errors.New("these tests use POSIX shell hooks")
 	}
-	dir, err := os.MkdirTemp("", "commitcoach-bin-")
+	dir, err := os.MkdirTemp("", "nanicommit-bin-")
 	if err != nil {
 		return nil, err
 	}
@@ -47,14 +47,14 @@ func buildBinary() (func(), error) {
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		return cleanup, err
 	}
-	binPath = filepath.Join(binDir, "commitcoach")
+	binPath = filepath.Join(binDir, "nanicommit")
 	goTool, err := exec.LookPath("go")
 	if err != nil {
 		goTool = filepath.Join(runtime.GOROOT(), "bin", "go")
 	}
 	// -buildvcs=false: the test binary needs no VCS stamp, and stamping fails
 	// in checkouts that go cannot map to a repository (e.g. some worktrees).
-	out, err := exec.Command(goTool, "build", "-buildvcs=false", "-o", binPath, "github.com/kobadaidesu/hook-test/cmd/commitcoach").CombinedOutput()
+	out, err := exec.Command(goTool, "build", "-buildvcs=false", "-o", binPath, "github.com/kobadaidesu/hook-test/cmd/nanicommit").CombinedOutput()
 	if err != nil {
 		return cleanup, fmt.Errorf("go build: %v\n%s", err, out)
 	}
@@ -66,7 +66,7 @@ type result struct {
 	code           int
 }
 
-// cc runs the commitcoach binary in dir with the repository's environment.
+// cc runs the nanicommit binary in dir with the repository's environment.
 func cc(t *testing.T, r *testutil.Repo, dir string, args ...string) result {
 	t.Helper()
 	return runBin(t, r, dir, binPath, args...)
@@ -96,7 +96,7 @@ func commit(t *testing.T, r *testutil.Repo, args ...string) string {
 }
 
 func eventPath(r *testutil.Repo, oid string) string {
-	return filepath.Join(r.Dir, ".git", "commitcoach", "events", oid+".json")
+	return filepath.Join(r.Dir, ".git", "nanicommit", "events", oid+".json")
 }
 
 var payloadKeys = []string{"branch", "commit_sha", "diff", "files", "message", "repository_id"}
@@ -331,10 +331,10 @@ func TestRepositoryID(t *testing.T) {
 	// init saves the ID in the local config only.
 	global := testutil.GlobalConfig()
 	globalBefore, _ := os.ReadFile(global)
-	if res := cc(t, r, "", "init", "--repository-id", testID); res.code != 0 || !strings.Contains(res.stdout, "saved as commitcoach.repositoryId") {
+	if res := cc(t, r, "", "init", "--repository-id", testID); res.code != 0 || !strings.Contains(res.stdout, "saved as nanicommit.repositoryId") {
 		t.Fatalf("init: %+v", res)
 	}
-	if got := strings.TrimSpace(r.Git("config", "--local", "--get", "commitcoach.repositoryId")); got != testID {
+	if got := strings.TrimSpace(r.Git("config", "--local", "--get", "nanicommit.repositoryId")); got != testID {
 		t.Errorf("local config = %q", got)
 	}
 	if after, _ := os.ReadFile(global); !bytes.Equal(globalBefore, after) {
@@ -363,7 +363,7 @@ func TestRepositoryID(t *testing.T) {
 	if res := cc(t, r, "", "init", "--repository-id", otherID); res.code != 0 {
 		t.Errorf("init with a new ID: %+v", res)
 	}
-	if got := r.Git("config", "--local", "--get-all", "commitcoach.repositoryId"); got != otherID+"\n" {
+	if got := r.Git("config", "--local", "--get-all", "nanicommit.repositoryId"); got != otherID+"\n" {
 		t.Errorf("local config after the change = %q", got)
 	}
 	r.Write("a.txt", "y\n")
@@ -375,7 +375,7 @@ func TestRepositoryID(t *testing.T) {
 
 func TestHookWithoutRepositoryIDKeepsCommit(t *testing.T) {
 	r := installed(t)
-	r.Git("config", "--local", "--unset", "commitcoach.repositoryId")
+	r.Git("config", "--local", "--unset", "nanicommit.repositoryId")
 	r.Write("a.txt", "x\n")
 	r.Git("add", "-A")
 	stderr := commit(t, r, "-m", "no id")
@@ -505,7 +505,7 @@ func TestHookFailureKeepsCommit(t *testing.T) {
 		t.Skip("root ignores directory permissions")
 	}
 	r := installed(t)
-	events := filepath.Join(r.Dir, ".git", "commitcoach", "events")
+	events := filepath.Join(r.Dir, ".git", "nanicommit", "events")
 	os.MkdirAll(events, 0o700)
 	os.Chmod(events, 0o500) // saving will fail
 	defer os.Chmod(events, 0o700)
@@ -530,7 +530,7 @@ func TestMovedBinary(t *testing.T) {
 	r := testutil.NewRepo(t)
 	dir := filepath.Join(t.TempDir(), "moved away")
 	os.MkdirAll(dir, 0o755)
-	copyBin := filepath.Join(dir, "commitcoach")
+	copyBin := filepath.Join(dir, "nanicommit")
 	data, _ := os.ReadFile(binPath)
 	os.WriteFile(copyBin, data, 0o755)
 	if res := runBin(t, r, "", copyBin, "init", "--repository-id", testID); res.code != 0 {
@@ -579,7 +579,7 @@ func TestTimeout(t *testing.T) {
 
 func TestHookCommandOutput(t *testing.T) {
 	r := testutil.NewRepo(t)
-	r.Git("config", "--local", "commitcoach.repositoryId", testID)
+	r.Git("config", "--local", "nanicommit.repositoryId", testID)
 	r.Write("a.txt", "x\n")
 	head := r.CommitAll("one")
 	res := cc(t, r, "", "hook", "post-commit")
@@ -596,7 +596,7 @@ func TestHookCommandOutput(t *testing.T) {
 	if res := cc(t, r, "", "hook", "pre-push", "origin", "git@example.com:x.git"); res.code != 0 {
 		t.Errorf("hook pre-push with no refs: %+v", res)
 	}
-	if res := cc(t, r, "", "help"); res.code != 0 || !strings.Contains(res.stdout, "commitcoach init") {
+	if res := cc(t, r, "", "help"); res.code != 0 || !strings.Contains(res.stdout, "nanicommit init") {
 		t.Errorf("help: %+v", res)
 	}
 }
@@ -618,7 +618,7 @@ func TestInitTwiceStatusAndUninstall(t *testing.T) {
 		t.Error("second init changed the hook")
 	}
 	res = cc(t, r, "", "status")
-	for _, want := range []string{"installed by commitcoach, unmodified", binPath + " (ok, the binary you are running)", "(Git default)", "not created yet", testID} {
+	for _, want := range []string{"installed by nanicommit, unmodified", binPath + " (ok, the binary you are running)", "(Git default)", "not created yet", testID} {
 		if !strings.Contains(res.stdout, want) {
 			t.Errorf("status lacks %q:\n%s", want, res.stdout)
 		}
@@ -629,7 +629,7 @@ func TestInitTwiceStatusAndUninstall(t *testing.T) {
 	commit(t, r, "-m", "one")
 	res = cc(t, r, "", "uninstall")
 	if res.code != 0 || !strings.Contains(res.stdout, "removed the post-commit hook") || !strings.Contains(res.stdout, "1 snapshot(s) were kept") ||
-		!strings.Contains(res.stdout, "git config --local --unset commitcoach.repositoryId") {
+		!strings.Contains(res.stdout, "git config --local --unset nanicommit.repositoryId") {
 		t.Errorf("uninstall: %+v", res)
 	}
 	if _, err := os.Lstat(hookPath); !os.IsNotExist(err) {
@@ -655,9 +655,9 @@ func TestInitConflicts(t *testing.T) {
 		cfg := filepath.Join(r.Dir, ".git", "config")
 		cfgBefore, _ := os.ReadFile(cfg)
 		res := cc(t, r, "", "init", "--repository-id", testID)
-		if res.code != 1 || !strings.Contains(res.stderr, "not created by commitcoach") || !strings.Contains(res.stderr, "No file or setting was changed") ||
+		if res.code != 1 || !strings.Contains(res.stderr, "not created by nanicommit") || !strings.Contains(res.stderr, "No file or setting was changed") ||
 			!strings.Contains(res.stderr, `'"'"'single'"'"'`) || !strings.Contains(res.stderr, "hook post-commit ||") ||
-			!strings.Contains(res.stderr, "git config --local commitcoach.repositoryId "+testID) {
+			!strings.Contains(res.stderr, "git config --local nanicommit.repositoryId "+testID) {
 			t.Errorf("init: %+v", res)
 		}
 		if got, _ := os.ReadFile(hookPath); string(got) != foreign {
@@ -747,7 +747,7 @@ func TestLinkedWorktree(t *testing.T) {
 	if *p.Branch != "feature" || strings.Join(p.Files, ",") != "b.txt" || p.RepositoryID != testID {
 		t.Errorf("worktree payload: %+v", p)
 	}
-	if res := cc(t, wt, "", "status"); !strings.Contains(res.stdout, "linked worktree") || !strings.Contains(res.stdout, "installed by commitcoach") {
+	if res := cc(t, wt, "", "status"); !strings.Contains(res.stdout, "linked worktree") || !strings.Contains(res.stdout, "installed by nanicommit") {
 		t.Errorf("status in worktree:\n%s", res.stdout)
 	}
 }
@@ -817,7 +817,7 @@ func TestOtherGitDirLayouts(t *testing.T) {
 		work.Git("add", "new.txt")
 		commit(t, work, "-m", "in "+filepath.Base(work.Dir))
 		head := strings.TrimSpace(work.Git("rev-parse", "HEAD"))
-		data, err := os.ReadFile(filepath.Join(gitDir, "commitcoach", "events", head+".json"))
+		data, err := os.ReadFile(filepath.Join(gitDir, "nanicommit", "events", head+".json"))
 		if err != nil {
 			t.Fatalf("JSON not in %s: %v", gitDir, err)
 		}
@@ -844,7 +844,7 @@ func TestOtherGitDirLayouts(t *testing.T) {
 		work.Git("init", "-q", "-b", "main", "--separate-git-dir", gitDir)
 		work.Configure()
 		check(t, work, gitDir)
-		if _, err := os.Stat(filepath.Join(work.Dir, "commitcoach")); !os.IsNotExist(err) {
+		if _, err := os.Stat(filepath.Join(work.Dir, "nanicommit")); !os.IsNotExist(err) {
 			t.Error("files were written into the working tree")
 		}
 	})

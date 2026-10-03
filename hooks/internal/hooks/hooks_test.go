@@ -26,7 +26,7 @@ func fakeExe(t *testing.T, dir string) (exe, log string) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	exe = filepath.Join(dir, "commitcoach")
+	exe = filepath.Join(dir, "nanicommit")
 	log = filepath.Join(t.TempDir(), "calls.log")
 	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '" + log + "'\n"
 	if err := os.WriteFile(exe, []byte(script), 0o755); err != nil {
@@ -171,7 +171,7 @@ func TestInstallIsIdempotentAndUpdates(t *testing.T) {
 	}
 	entries, _ := os.ReadDir(filepath.Dir(hookPath))
 	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), ".commitcoach") {
+		if strings.HasPrefix(e.Name(), ".nanicommit") {
 			t.Errorf("temporary file left behind: %s", e.Name())
 		}
 	}
@@ -201,7 +201,7 @@ func TestInstallKeepsForeignAndEditedHooks(t *testing.T) {
 		t.Fatalf("uninstall of foreign hook: %+v, %v", res, err)
 	}
 
-	// A commitcoach hook edited by the user is neither replaced nor removed.
+	// A nanicommit hook edited by the user is neither replaced nor removed.
 	os.Remove(hookPath)
 	if _, err := hooks.Install(ctx, repo, exe); err != nil {
 		t.Fatal(err)
@@ -225,7 +225,7 @@ func TestInstallDoesNotFollowSymlink(t *testing.T) {
 	repo := openRepo(t, r.Dir)
 	exe, _ := fakeExe(t, t.TempDir())
 	target := filepath.Join(t.TempDir(), "shared-hook")
-	os.WriteFile(target, hooks.Script(exe), 0o755) // even a commitcoach script behind a link
+	os.WriteFile(target, hooks.Script(exe), 0o755) // even a nanicommit script behind a link
 	hookPath := filepath.Join(repo.CommonDir, "hooks", "post-commit")
 	if err := os.Symlink(target, hookPath); err != nil {
 		t.Fatal(err)

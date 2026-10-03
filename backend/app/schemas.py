@@ -66,6 +66,7 @@ class CommitIn(_Strict):
 class CommitOut(BaseModel):
     quiz_id: UUID
     quiz_url: str
+    talk_url: str
     status: CommitStatus
     question_count: int
 

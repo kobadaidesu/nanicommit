@@ -19,13 +19,13 @@ import (
 
 func runInit(args []string, stdout, stderr io.Writer) int {
 	fs := newFlagSet("init [--backend-url URL --user-id UUID] [--repository-id UUID]",
-		"Install the post-commit and pre-push hooks in the current repository that run this commitcoach binary,\n"+
+		"Install the post-commit and pre-push hooks in the current repository that run this nanicommit binary,\n"+
 			"and save the repository ID in the local git config ("+repoid.ConfigKey+").\n"+
 			"With --backend-url and --user-id the backend settings are saved too, and every commit is sent\n"+
 			"to the backend for a quiz; the pre-push hook then blocks pushes until the quizzes are passed.\n"+
 			"When no repository ID is given or saved, init registers the repository with the backend and\n"+
 			"saves the ID it gets; a given ID is checked with the backend instead (to recover a registration).\n"+
-			"Nothing is changed if core.hooksPath is set or a hook that is not commitcoach's exists.", stderr)
+			"Nothing is changed if core.hooksPath is set or a hook that is not nanicommit's exists.", stderr)
 	flagID := fs.String("repository-id", "", "UUID of this repository in the backend (only to reuse an existing registration; without the backend, required unless already saved)")
 	flagURL := fs.String("backend-url", "", "base URL of the learning backend, e.g. http://localhost:8100 (saved as "+backend.ConfigKeyURL+")")
 	flagUser := fs.String("user-id", "", "UUID of the user in the backend (saved as "+backend.ConfigKeyUser+")")
@@ -33,18 +33,18 @@ func runInit(args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 	if (*flagURL == "") != (*flagUser == "") {
-		fmt.Fprintln(stderr, "commitcoach init: --backend-url and --user-id must be given together")
+		fmt.Fprintln(stderr, "nanicommit init: --backend-url and --user-id must be given together")
 		return exitUsage
 	}
 	if *flagURL != "" && !strings.HasPrefix(*flagURL, "http://") && !strings.HasPrefix(*flagURL, "https://") {
-		fmt.Fprintf(stderr, "commitcoach init: --backend-url %q must start with http:// or https://\n", *flagURL)
+		fmt.Fprintf(stderr, "nanicommit init: --backend-url %q must start with http:// or https://\n", *flagURL)
 		return exitUsage
 	}
 	normalizedUser := ""
 	if *flagUser != "" {
 		var err error
 		if normalizedUser, err = repoid.Normalize(*flagUser); err != nil {
-			fmt.Fprintf(stderr, "commitcoach init: --user-id: %v\n", err)
+			fmt.Fprintf(stderr, "nanicommit init: --user-id: %v\n", err)
 			return exitUsage
 		}
 	}
@@ -86,7 +86,7 @@ func runInit(args []string, stdout, stderr io.Writer) int {
 				fmt.Fprintf(stderr, "  %s\n", d)
 			}
 			fmt.Fprintf(stderr, "No file or setting was changed.\n\n"+
-				"To run commitcoach from your own hook, add this line to %s\n"+
+				"To run nanicommit from your own hook, add this line to %s\n"+
 				"(create the file with \"#!/bin/sh\" as its first line and make it executable if it does not exist):\n\n    %s\n",
 				conflict.HookFile, conflict.Line)
 			if registered {
@@ -125,7 +125,7 @@ func runInit(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "  user id:   %s (saved as %s)\n", normalizedUser, backend.ConfigKeyUser)
 	} else if _, err := backend.LoadConfig(ctx, repo); errors.Is(err, backend.ErrNotConfigured) {
 		fmt.Fprintln(stdout, "  backend:   not configured; commits are recorded locally only and pushes are not checked")
-		fmt.Fprintln(stdout, "             (configure it with: commitcoach init --backend-url <URL> --user-id <UUID>)")
+		fmt.Fprintln(stdout, "             (configure it with: nanicommit init --backend-url <URL> --user-id <UUID>)")
 	}
 	if id != saved {
 		if err := repoid.Save(ctx, repo, id); err != nil {
@@ -161,7 +161,7 @@ func resolveRepositoryID(ctx context.Context, repo *gitrepo.Repo, cfg *backend.C
 	}
 	if cfg == nil {
 		if id == "" {
-			return "", false, fmt.Errorf("%w,\nor let init register the repository: commitcoach init --backend-url <URL> --user-id <UUID>", repoid.ErrNotSet)
+			return "", false, fmt.Errorf("%w,\nor let init register the repository: nanicommit init --backend-url <URL> --user-id <UUID>", repoid.ErrNotSet)
 		}
 		return id, false, nil
 	}
@@ -190,14 +190,14 @@ func resolveRepositoryID(ctx context.Context, repo *gitrepo.Repo, cfg *backend.C
 func installableExecutable() (string, error) {
 	exe, err := os.Executable()
 	if err != nil {
-		return "", fmt.Errorf("cannot find the path of this commitcoach binary: %w", err)
+		return "", fmt.Errorf("cannot find the path of this nanicommit binary: %w", err)
 	}
 	if exe, err = filepath.Abs(exe); err != nil {
 		return "", err
 	}
 	if isGoRunBinary(exe) {
 		return "", fmt.Errorf("this binary (%s) is a temporary file made by \"go run\" and will disappear; "+
-			"build it first (go build -o bin/commitcoach ./cmd/commitcoach) and run init with that binary", exe)
+			"build it first (go build -o bin/nanicommit ./cmd/nanicommit) and run init with that binary", exe)
 	}
 	return exe, nil
 }
@@ -211,7 +211,7 @@ func isGoRunBinary(exe string) bool {
 }
 
 func runUninstall(args []string, stdout, stderr io.Writer) int {
-	fs := newFlagSet("uninstall", "Remove the post-commit and pre-push hooks if commitcoach installed them and they have not been edited.\n"+
+	fs := newFlagSet("uninstall", "Remove the post-commit and pre-push hooks if nanicommit installed them and they have not been edited.\n"+
 		"Other hooks and settings are never touched, and recorded snapshots are kept.", stderr)
 	if code, ok := parseFlags(fs, args); !ok {
 		return code
@@ -240,7 +240,7 @@ func runUninstall(args []string, stdout, stderr io.Writer) int {
 		case hooks.Absent:
 			fmt.Fprintf(stdout, "nanicommit: no %s hook is installed (%s does not exist); nothing to do\n", name, res.HookFile)
 		case hooks.LeftAlone:
-			fmt.Fprintf(stdout, "nanicommit: %s was not created by commitcoach; it was left unchanged\n", res.HookFile)
+			fmt.Fprintf(stdout, "nanicommit: %s was not created by nanicommit; it was left unchanged\n", res.HookFile)
 		}
 	}
 	if code != exitOK {
@@ -290,7 +290,7 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 	if id, err := repoid.Load(ctx, repo); err == nil {
 		out("repository id", "%s (%s, local git config)", id, repoid.ConfigKey)
 	} else if errors.Is(err, repoid.ErrNotSet) {
-		out("repository id", "not set (run \"commitcoach init --backend-url <URL> --user-id <UUID>\" to register, or init --repository-id <UUID>; the hook fails without it)")
+		out("repository id", "not set (run \"nanicommit init --backend-url <URL> --user-id <UUID>\" to register, or init --repository-id <UUID>; the hook fails without it)")
 	} else {
 		out("repository id", "INVALID: %v", err)
 	}
@@ -311,13 +311,13 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 	h := st.Hook
 	switch h.State {
 	case hooks.NotInstalled:
-		out("post-commit hook", "not installed (run \"commitcoach init\")")
+		out("post-commit hook", "not installed (run \"nanicommit init\")")
 	case hooks.Installed:
-		out("post-commit hook", "installed by commitcoach, unmodified")
+		out("post-commit hook", "installed by nanicommit, unmodified")
 	case hooks.Modified:
-		out("post-commit hook", "created by commitcoach but edited since (init and uninstall leave it alone)")
+		out("post-commit hook", "created by nanicommit but edited since (init and uninstall leave it alone)")
 	case hooks.Foreign:
-		out("post-commit hook", "exists but was not created by commitcoach")
+		out("post-commit hook", "exists but was not created by nanicommit")
 	}
 	if h.State != hooks.NotInstalled {
 		out("  hook file", "%s", h.Path)
@@ -332,13 +332,13 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 	}
 	switch ph := pst.Hook; ph.State {
 	case hooks.NotInstalled:
-		out("pre-push hook", "not installed (run \"commitcoach init\"; pushes are not checked)")
+		out("pre-push hook", "not installed (run \"nanicommit init\"; pushes are not checked)")
 	case hooks.Installed:
-		out("pre-push hook", "installed by commitcoach, unmodified")
+		out("pre-push hook", "installed by nanicommit, unmodified")
 	case hooks.Modified:
-		out("pre-push hook", "created by commitcoach but edited since (init and uninstall leave it alone)")
+		out("pre-push hook", "created by nanicommit but edited since (init and uninstall leave it alone)")
 	case hooks.Foreign:
-		out("pre-push hook", "exists but was not created by commitcoach")
+		out("pre-push hook", "exists but was not created by nanicommit")
 	}
 	if pst.Hook.State != hooks.NotInstalled {
 		out("  hook file", "%s", pst.Hook.Path)
@@ -364,27 +364,27 @@ func statusConflicts(st *hooks.Status) []string {
 		list = append(list, fmt.Sprintf("core.hooksPath = %s (%s scope, %s)", v.Value, v.Scope, v.Origin))
 	}
 	if len(st.HooksPath) > 0 && st.Hook.State == hooks.Installed {
-		list = append(list, "the commitcoach hook in "+st.HooksDir+" does not run because core.hooksPath points elsewhere")
+		list = append(list, "the nanicommit hook in "+st.HooksDir+" does not run because core.hooksPath points elsewhere")
 	}
 	if eh := st.EffectiveHook; eh != nil {
 		switch {
 		case eh.State == hooks.NotInstalled:
 			list = append(list, "no post-commit hook in "+st.EffectiveHooksDir)
-		case eh.CallsCommitcoach:
-			list = append(list, eh.Path+" exists and appears to call commitcoach (manual integration)")
+		case eh.CallsNanicommit:
+			list = append(list, eh.Path+" exists and appears to call nanicommit (manual integration)")
 		default:
-			list = append(list, eh.Path+" exists and is not managed by commitcoach")
+			list = append(list, eh.Path+" exists and is not managed by nanicommit")
 		}
 	}
 	switch st.Hook.State {
 	case hooks.Foreign:
-		if st.Hook.CallsCommitcoach {
-			list = append(list, st.Hook.Path+" is not managed by commitcoach but appears to call it (manual integration)")
+		if st.Hook.CallsNanicommit {
+			list = append(list, st.Hook.Path+" is not managed by nanicommit but appears to call it (manual integration)")
 		} else {
-			list = append(list, st.Hook.Path+" is someone else's hook; add the commitcoach call to it by hand (see \"commitcoach init\")")
+			list = append(list, st.Hook.Path+" is someone else's hook; add the nanicommit call to it by hand (see \"nanicommit init\")")
 		}
 	case hooks.Modified:
-		list = append(list, st.Hook.Path+" was edited after commitcoach created it")
+		list = append(list, st.Hook.Path+" was edited after nanicommit created it")
 	}
 	return list
 }

@@ -1,4 +1,4 @@
-# commitcoach
+# nanicommit
 
 `git commit` で作られたcommitの変更内容を、学習問題を生成するバックエンドへ渡すためのJSONにするCLIツールです。
 Gitの `post-commit` フックから起動されてローカルに保存するほか、任意のcommitを同じ形式で標準出力やファイルへ出せます。
@@ -19,7 +19,7 @@ Gitの `post-commit` フックから起動されてローカルに保存する�
 最終的には「開発者が変更したコードを教材にする学習サービス」の入口になる想定です。今回実装したのは、JSONを作ってローカルに保存・出力するところまでです。
 
 ```
-git commit → post-commitフック → commitcoach（Go） → commitと差分を取得 → 6項目のJSON → .git/commitcoach/events/ に保存
+git commit → post-commitフック → nanicommit（Go） → commitと差分を取得 → 6項目のJSON → .git/nanicommit/events/ に保存
 ```
 
 ## 目次
@@ -47,11 +47,11 @@ git commit → post-commitフック → commitcoach（Go） → commitと差分�
 
 | コマンド | 内容 |
 |---|---|
-| `commitcoach init --repository-id <UUID>` | 現在のリポジトリに `post-commit` フックを導入し、repository_id をリポジトリローカルのGit設定に保存する。既存のフックや `core.hooksPath` があれば何も変更せず、手動で組み込む方法を表示する |
-| `commitcoach hook post-commit` | フックから呼ばれる内部コマンド。HEADのcommitをJSONにして保存する |
-| `commitcoach export` | 任意のcommitを同じ形式のJSONにして、標準出力またはファイルへ出す。フックを導入していなくても使える |
-| `commitcoach status` | リポジトリ、repository_id、フックの導入状態、有効なフックの場所、呼び出されるバイナリの状態、保存先、競合する設定を表示する |
-| `commitcoach uninstall` | このツールが導入し、編集されていないフックだけを削除する。保存済みJSONと repository_id の設定は残す |
+| `nanicommit init --repository-id <UUID>` | 現在のリポジトリに `post-commit` フックを導入し、repository_id をリポジトリローカルのGit設定に保存する。既存のフックや `core.hooksPath` があれば何も変更せず、手動で組み込む方法を表示する |
+| `nanicommit hook post-commit` | フックから呼ばれる内部コマンド。HEADのcommitをJSONにして保存する |
+| `nanicommit export` | 任意のcommitを同じ形式のJSONにして、標準出力またはファイルへ出す。フックを導入していなくても使える |
+| `nanicommit status` | リポジトリ、repository_id、フックの導入状態、有効なフックの場所、呼び出されるバイナリの状態、保存先、競合する設定を表示する |
+| `nanicommit uninstall` | このツールが導入し、編集されていないフックだけを削除する。保存済みJSONと repository_id の設定は残す |
 
 ### 実装していないもの
 
@@ -79,16 +79,16 @@ HTTP通信（バックエンドへの送信）、ログイン・認証、リポ�
 ```sh
 git clone https://github.com/kobadaidesu/hook-test.git
 cd hook-test/hooks
-go build -o bin/commitcoach ./cmd/commitcoach
+go build -o bin/nanicommit ./cmd/nanicommit
 ```
 
-または `go install ./cmd/commitcoach` で `$(go env GOPATH)/bin/commitcoach` に入れても構いません。
+または `go install ./cmd/nanicommit` で `$(go env GOPATH)/bin/nanicommit` に入れても構いません。
 
 > **`go run` で `init` しないでください。** `go run` が作るバイナリは一時ディレクトリにあり、すぐ消えます。フックはバイナリの絶対パスを埋め込むので、`init` は必ずビルド済み・インストール済みのバイナリから実行してください（`go run` の一時バイナリからの `init` はエラーになり、何も変更されません）。
 
 ## 使い方
 
-以下では、ビルドしたバイナリを `/path/to/commitcoach` と書きます。
+以下では、ビルドしたバイナリを `/path/to/nanicommit` と書きます。
 
 ### repository_id
 
@@ -96,19 +96,19 @@ go build -o bin/commitcoach ./cmd/commitcoach
 
 | 指定方法 | 使われる場面 | 保存 |
 |---|---|---|
-| `init --repository-id <UUID>` | フック・export の両方 | リポジトリローカルのGit設定 `commitcoach.repositoryId`（`.git/config`）に保存 |
+| `init --repository-id <UUID>` | フック・export の両方 | リポジトリローカルのGit設定 `nanicommit.repositoryId`（`.git/config`）に保存 |
 | `export --repository-id <UUID>` | その export 1回だけ（保存済みの値より優先） | 保存しない。保存済みの設定も変更しない |
 
 - フラグも保存済みの設定もなければ、設定方法を示してエラーにします（終了コード1、JSONは出力しない）。空文字、固定値、自動生成したUUIDで埋めることはしません。
 
   ```
-  commitcoach: error: repository_id is not set: save it with "commitcoach init --repository-id <UUID>" (or git config --local commitcoach.repositoryId <UUID>), or pass --repository-id to export
+  nanicommit: error: repository_id is not set: save it with "nanicommit init --repository-id <UUID>" (or git config --local nanicommit.repositoryId <UUID>), or pass --repository-id to export
   ```
 
 - 受け付けるのは `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` 形式（16進数）のUUIDだけです。大文字は小文字にそろえて使います。nil UUID（`00000000-0000-0000-0000-000000000000`）は登録済みのIDではありえないので拒否します。
 - 読むのはリポジトリローカルの設定だけです。グローバル設定に同じキーがあっても使いません（IDはリポジトリごとに違うため）。グローバル設定は一切変更しません。
 - `git worktree` のリンクされた作業ツリーは、同じ `.git/config` を共有するので同じIDになります。
-- 確認は `commitcoach status` の `repository id:` 行、または `git config --local --get commitcoach.repositoryId` で行えます。
+- 確認は `nanicommit status` の `repository id:` 行、または `git config --local --get nanicommit.repositoryId` で行えます。
 
 ### 導入（init）
 
@@ -116,14 +116,14 @@ go build -o bin/commitcoach ./cmd/commitcoach
 
 ```sh
 cd /path/to/your-repo
-/path/to/commitcoach init --repository-id 550e8400-e29b-41d4-a716-446655440000
+/path/to/nanicommit init --repository-id 550e8400-e29b-41d4-a716-446655440000
 ```
 
 ```
-commitcoach: installed the post-commit hook: /path/to/your-repo/.git/hooks/post-commit
-  runs:      /path/to/commitcoach hook post-commit
-  snapshots: /path/to/your-repo/.git/commitcoach/events
-  repository id: 550e8400-e29b-41d4-a716-446655440000 (saved as commitcoach.repositoryId in the local git config)
+nanicommit: installed the post-commit hook: /path/to/your-repo/.git/hooks/post-commit
+  runs:      /path/to/nanicommit hook post-commit
+  snapshots: /path/to/your-repo/.git/nanicommit/events
+  repository id: 550e8400-e29b-41d4-a716-446655440000 (saved as nanicommit.repositoryId in the local git config)
 ```
 
 - 何度実行しても重複しません（2回目は `already installed`）。IDを保存済みなら、2回目以降は `--repository-id` を省略できます。別のIDを渡すと置き換えます。
@@ -140,18 +140,28 @@ git commit -m "キャッシュ削除処理を追加"
 commitが作られた後、フックが標準エラー出力に短い案内だけを出します。JSONの本文は表示しません。
 
 ```
-commitcoach: recorded the snapshot of 0226edda3ed64eb7821ee827df5a63c8f9d21012 in /path/to/your-repo/.git/commitcoach/events/0226edda3ed64eb7821ee827df5a63c8f9d21012.json
-commitcoach: note: left out .env: the path looks like it holds secrets, so its content is not recorded
-commitcoach: note: left out docs/diagram.png: binary file
+nanicommit: recorded the snapshot of 0226edda3ed64eb7821ee827df5a63c8f9d21012 in /path/to/your-repo/.git/nanicommit/events/0226edda3ed64eb7821ee827df5a63c8f9d21012.json
+nanicommit: note: left out .env: the path looks like it holds secrets, so its content is not recorded
+nanicommit: note: left out docs/diagram.png: binary file
 ```
 
 `note:` 行は、機密ファイルやバイナリを files と diff から外したときなどに出ます（パスだけで、中身は出しません）。
 
+`init --backend-url ... --user-id ...` でバックエンドを設定していれば、続けてcommitを送り、問題ができたら **ぽんたとふりかえるページ（`/talk/<commit_id>`）をブラウザで自動的に開きます**。開くURLはバックエンドが返す `talk_url` です。
+
+```
+nanicommit: sending 0226edd to http://localhost:8100 and waiting for its quiz ...
+nanicommit: 3 questions are ready for 0226edd: http://localhost:5173/quizzes/<commit_id>
+nanicommit: opening http://localhost:5173/talk/<commit_id>
+```
+
+ブラウザを開きたくないときは環境変数 `NANICOMMIT_NO_BROWSER=1` を設定してください。開かずに `nanicommit: look back on it with ぽんた: <URL>` とURLだけを表示します。ブラウザを開けなかった場合も警告とURLを出すだけで、commitには影響しません。
+
 JSONの取得や保存に失敗しても（repository_id が未設定、上限超過、保存先に書けないなど）、**commit自体は作成済みのまま**です。フックは次のような警告を出して正常終了し、commitを取り消したりはしません。
 
 ```
-commitcoach: error: the commit was created, but its snapshot could not be recorded: repository_id is not set: ...
-commitcoach: warning: the commit was created, but its snapshot was not recorded (exit status 1)
+nanicommit: error: the commit was created, but its snapshot could not be recorded: repository_id is not set: ...
+nanicommit: warning: the commit was created, but its snapshot was not recorded (exit status 1)
 ```
 
 ### 保存先の確認
@@ -159,23 +169,23 @@ commitcoach: warning: the commit was created, but its snapshot was not recorded 
 保存先は Git管理ディレクトリ（全worktreeで共有される common dir）の下です。作業ツリーには何も作りません。
 
 ```sh
-ls "$(git rev-parse --path-format=absolute --git-common-dir)/commitcoach/events"
-# 通常のリポジトリなら .git/commitcoach/events/<commitの完全なID>.json
+ls "$(git rev-parse --path-format=absolute --git-common-dir)/nanicommit/events"
+# 通常のリポジトリなら .git/nanicommit/events/<commitの完全なID>.json
 ```
 
 - ディレクトリは初回保存時に作られます（パーミッション 0700、JSONは 0600）。
 - 同じcommitを再収集すると、同じファイルが置き換えられます。
-- `commitcoach status` の `snapshots:` 行にも場所と件数が出ます。
+- `nanicommit status` の `snapshots:` 行にも場所と件数が出ます。
 
 ### 任意のcommitをJSONにする（export）
 
 ```sh
-commitcoach export                                         # HEAD を標準出力へ（保存済みのIDを使う）
-commitcoach export --commit HEAD --repository-id <UUID>    # この実行だけIDを指定
-commitcoach export --commit 1a2b3c4                        # 短縮IDやブランチ名、タグも可
-commitcoach export --commit HEAD --output -                # "-" は標準出力（既定値）
-commitcoach export --commit HEAD --output ./payload.json
-commitcoach export | jq '{commit_sha, files}'
+nanicommit export                                         # HEAD を標準出力へ（保存済みのIDを使う）
+nanicommit export --commit HEAD --repository-id <UUID>    # この実行だけIDを指定
+nanicommit export --commit 1a2b3c4                        # 短縮IDやブランチ名、タグも可
+nanicommit export --commit HEAD --output -                # "-" は標準出力（既定値）
+nanicommit export --commit HEAD --output ./payload.json
+nanicommit export | jq '{commit_sha, files}'
 ```
 
 - 標準出力にはJSONオブジェクトを1つだけ出します（末尾に改行1つ）。進捗や注意書きはすべて標準エラー出力です。
@@ -192,28 +202,28 @@ repository:        your-repo
 working tree:      /path/to/your-repo
 git directory:     /path/to/your-repo/.git
 git:               git version 2.43.0
-repository id:     550e8400-e29b-41d4-a716-446655440000 (commitcoach.repositoryId, local git config)
+repository id:     550e8400-e29b-41d4-a716-446655440000 (nanicommit.repositoryId, local git config)
 hooks directory:   /path/to/your-repo/.git/hooks (Git default)
-post-commit hook:  installed by commitcoach, unmodified
+post-commit hook:  installed by nanicommit, unmodified
   hook file:       /path/to/your-repo/.git/hooks/post-commit
-  executable:      /path/to/commitcoach (ok, the binary you are running)
-snapshots:         /path/to/your-repo/.git/commitcoach/events (2 JSON file(s))
+  executable:      /path/to/nanicommit (ok, the binary you are running)
+snapshots:         /path/to/your-repo/.git/nanicommit/events (2 JSON file(s))
 conflicts:         none
 ```
 
-未導入なら `not installed (run "commitcoach init")`、IDが未設定なら `repository id: not set (...)`、バイナリが消えていれば `MISSING` と表示します。`core.hooksPath` や他人のフックがあれば `conflicts:` に列挙します。状態確認だけで何も変更しません。
+未導入なら `not installed (run "nanicommit init")`、IDが未設定なら `repository id: not set (...)`、バイナリが消えていれば `MISSING` と表示します。`core.hooksPath` や他人のフックがあれば `conflicts:` に列挙します。状態確認だけで何も変更しません。
 
 ### 解除（uninstall）
 
 ```sh
-commitcoach uninstall
+nanicommit uninstall
 ```
 
 - このツールが作り、**編集されていない** `post-commit` だけを削除します。
 - 他人のフックは削除しません（`left unchanged` と表示して終了コード0）。
 - 導入後に編集されたフックは削除せず、警告を出して終了コード1で終わります。必要なら内容を確認して手で削除してください。
 - 未導入でも安全に実行できます（`nothing to do`）。
-- 保存済みのJSONと repository_id の設定は削除しません。不要なら `.git/commitcoach/` を削除し、`git config --local --unset commitcoach.repositoryId` を実行してください。
+- 保存済みのJSONと repository_id の設定は削除しません。不要なら `.git/nanicommit/` を削除し、`git config --local --unset nanicommit.repositoryId` を実行してください。
 
 ### 終了コード
 
@@ -230,8 +240,8 @@ commitcoach uninstall
 ```sh
 # 1. ビルド
 cd hook-test/hooks
-go build -o bin/commitcoach ./cmd/commitcoach
-CC="$PWD/bin/commitcoach"
+go build -o bin/nanicommit ./cmd/nanicommit
+CC="$PWD/bin/nanicommit"
 
 # 2. 試験用リポジトリ
 tmp=$(mktemp -d) && cd "$tmp"
@@ -247,8 +257,8 @@ sed -i.bak 's/a - b/a + b/' add.go && rm -f add.go.bak
 git commit -am "Fix addition"                          # 通常のcommit（第一親と比較）
 
 # 4. フックが保存したJSONを見る
-ls .git/commitcoach/events/
-cat ".git/commitcoach/events/$(git rev-parse HEAD).json"
+ls .git/nanicommit/events/
+cat ".git/nanicommit/events/$(git rev-parse HEAD).json"
 
 # 5. export（未commitの変更が混ざらないことも確認）
 echo "// uncommitted" >> add.go
@@ -328,7 +338,7 @@ echo "// uncommitted" >> add.go
 - 第一親のオブジェクトが手元にない場合（shallow cloneの境界など）は、初回commitとして扱わずに理由を示してエラーにします。
 
   ```
-  commitcoach: error: commit 40ff146b...: its first parent 288299e4... is not in the local repository, so the diff cannot be computed (the commit is not treated as a root commit); this is a shallow clone, run 'git fetch --unshallow' (or fetch more history) to get it
+  nanicommit: error: commit 40ff146b...: its first parent 288299e4... is not in the local repository, so the diff cannot be computed (the commit is not treated as a root commit); this is a shallow clone, run 'git fetch --unshallow' (or fetch more history) to get it
   ```
 
 ## サイズ上限・バイナリ・機密ファイル
@@ -346,7 +356,7 @@ echo "// uncommitted" >> add.go
 JSONには「切り詰めた」ことを表す項目がないので、**上限を超えたcommitについては、一部分だけのJSONを出さずに出力を中止します**（部分的な差分が、完全な差分に見えてしまうため）。
 
 ```
-commitcoach: error: limit exceeded: the diff of big.txt is larger than 65536 bytes; no JSON was written, because a partial diff would look complete
+nanicommit: error: limit exceeded: the diff of big.txt is larger than 65536 bytes; no JSON was written, because a partial diff would look complete
 ```
 
 - export は終了コード1で、標準出力にもファイルにも何も書きません（既存の出力ファイルもそのまま）。
@@ -382,28 +392,28 @@ Gitがバイナリと判定したファイルは、`files` と `diff` の両方�
 
 ```sh
 #!/bin/sh
-# commitcoach-managed-hook: v1
-# commitcoach-executable: "/path/to/commitcoach"
+# nanicommit-managed-hook: v1
+# nanicommit-executable: "/path/to/nanicommit"
 #
-# Created by "commitcoach init". Remove it with "commitcoach uninstall".
-# If you edit this file, commitcoach will no longer update or remove it.
+# Created by "nanicommit init". Remove it with "nanicommit uninstall".
+# If you edit this file, nanicommit will no longer update or remove it.
 #
 # The commit already exists when this hook runs. Recording its snapshot may
 # fail, but that never undoes or blocks the commit, so this hook exits 0.
-commitcoach_bin='/path/to/commitcoach'
-if [ -x "$commitcoach_bin" ]; then
-	"$commitcoach_bin" hook post-commit ||
-		printf 'commitcoach: warning: the commit was created, but its snapshot was not recorded (exit status %s)\n' "$?" >&2
+nanicommit_bin='/path/to/nanicommit'
+if [ -x "$nanicommit_bin" ]; then
+	"$nanicommit_bin" hook post-commit ||
+		printf 'nanicommit: warning: the commit was created, but its snapshot was not recorded (exit status %s)\n' "$?" >&2
 else
-	printf 'commitcoach: warning: the commit was created, but the commitcoach executable is missing: %s\n' "$commitcoach_bin" >&2
-	printf 'commitcoach: build or install it again and rerun "commitcoach init", or delete this hook: %s\n' "$0" >&2
+	printf 'nanicommit: warning: the commit was created, but the nanicommit executable is missing: %s\n' "$nanicommit_bin" >&2
+	printf 'nanicommit: build or install it again and rerun "nanicommit init", or delete this hook: %s\n' "$0" >&2
 fi
 exit 0
 ```
 
 - `PATH` の違いで起動に失敗しないよう、`init` を実行したバイナリの絶対パスを埋め込みます。
 - パスはシェルの単一引用符でクォートします（`'` は `'"'"'` に置換）。空白、`'`、`"`、`$`、バッククォート、`\`、改行、日本語を含むパスでも壊れないことをテストしています。
-- Go側（`commitcoach hook post-commit`）は失敗すると非ゼロで終わり、フック側はそれを警告として表示して **常に0で終わります**。フック全体には30秒のタイムアウトがあります（`--timeout` で変更可）。
+- Go側（`nanicommit hook post-commit`）は失敗すると非ゼロで終わり、フック側はそれを警告として表示して **常に0で終わります**。フック全体には30秒のタイムアウトがあります（`--timeout` で変更可）。
 - **識別方法**: 2行目のマーカーで「このツールが作ったフック」と判定し、3行目（Goの文字列リテラル形式）から埋め込んだパスを読み取ります。そのパスでスクリプトを再生成してバイト単位で比較し、一致しなければ「導入後に編集された」とみなします。編集されたフックは上書きも削除もしません。
 - 新規作成では、一時ファイルを作ってからハードリンクで配置するため、既存のファイルを上書きしません（ハードリンクが使えないファイルシステムでは排他作成に切り替えます）。
 
@@ -420,36 +430,40 @@ exit 0
 表示例（`core.hooksPath` がある場合）:
 
 ```
-commitcoach: not installed: core.hooksPath is set, so Git runs hooks from /path/to/repo/.husky instead of /path/to/repo/.git/hooks; commitcoach does not change this setting or that directory.
+nanicommit: not installed: core.hooksPath is set, so Git runs hooks from /path/to/repo/.husky instead of /path/to/repo/.git/hooks; nanicommit does not change this setting or that directory.
   core.hooksPath = .husky (local scope, file:.git/config)
 No file or setting was changed.
 
-To run commitcoach from your own hook, add this line to /path/to/repo/.husky/post-commit
+To run nanicommit from your own hook, add this line to /path/to/repo/.husky/post-commit
 (create the file with "#!/bin/sh" as its first line and make it executable if it does not exist):
 
-    '/path/to/commitcoach' hook post-commit || echo 'commitcoach: warning: the commit was created, but its snapshot was not recorded' >&2
+    '/path/to/nanicommit' hook post-commit || echo 'nanicommit: warning: the commit was created, but its snapshot was not recorded' >&2
 
 and save the repository ID:
 
-    git config --local commitcoach.repositoryId 550e8400-e29b-41d4-a716-446655440000
+    git config --local nanicommit.repositoryId 550e8400-e29b-41d4-a716-446655440000
 ```
 
-既存フックへの自動統合はしません。表示された1行を既存の `post-commit` に手で追加し、repository_id を保存してください。`status` は、手動で組み込んだフックも `appears to call commitcoach (manual integration)` と表示します。
+既存フックへの自動統合はしません。表示された1行を既存の `post-commit` に手で追加し、repository_id を保存してください。`status` は、手動で組み込んだフックも `appears to call nanicommit (manual integration)` と表示します。
 
 `git worktree` のリンクされた作業ツリーでは、フック・JSONの保存先・repository_id はリポジトリ全体で共有されます（`init` はその旨を表示します）。
+
+## 旧名（改名前）のフックが残っている場合
+
+改名前のバイナリで `init` したリポジトリでは、古い `post-commit`・`pre-push` フックが「このツールが作っていないフック」と判定され、`init` が何も変更しません。`.git/hooks/post-commit` と `.git/hooks/pre-push` を削除し、`nanicommit init --backend-url <URL> --user-id <UUID>` をやり直してください（Git設定キーも `nanicommit.*` に変わったため、設定も入れ直しになります）。
 
 ## バイナリを移動・削除した場合の復旧
 
 フックはバイナリの絶対パスを持っているので、バイナリを移動・削除するとcommitのたびに次の警告が出ます。commit自体は成功します。
 
 ```
-commitcoach: warning: the commit was created, but the commitcoach executable is missing: /old/path/commitcoach
+nanicommit: warning: the commit was created, but the nanicommit executable is missing: /old/path/nanicommit
 ```
 
 `status` でも `executable: ... (MISSING: ...)` と表示されます。復旧方法:
 
 1. バイナリをビルドし直すかインストールし直し、**新しいバイナリで `init` を再実行**します（保存済みの repository_id がそのまま使われるので、`--repository-id` は不要です）。このツールが作った未編集のフックなら、呼び出し先が新しいパスに更新されます（`updated the post-commit hook`）。
-2. もう使わない場合は、任意の場所の `commitcoach` で `uninstall` を実行します。バイナリがなければ `.git/hooks/post-commit` を手で削除しても構いません（中身がこのツールのものであることを確認してから）。
+2. もう使わない場合は、任意の場所の `nanicommit` で `uninstall` を実行します。バイナリがなければ `.git/hooks/post-commit` を手で削除しても構いません（中身がこのツールのものであることを確認してから）。
 
 ## 差分取得の仕組みと安全性
 
@@ -463,7 +477,7 @@ commitcoach: warning: the commit was created, but the commitcoach executable is 
 - **外部プロセスを起動しない**: `--no-ext-diff`、`--no-textconv`、`--no-color`、`--no-pager`、`-c core.fsmonitor=false`、`git log --no-show-signature`（gpgを起動しない）。シンボリックリンクをたどって本文を取得することもありません（シンボリックリンクはリンク先の文字列がblobとして差分に出ます）。
 - **シェルを通さない**: Gitはコマンド名と引数を分けて `os/exec` に渡します。`sh -c` に文字列を渡すことはありません。ユーザー入力（`--commit`）の前には `--end-of-options` を置きます。JSONは `encoding/json` で生成します。
 - **無限に待たない**: すべてのGit呼び出しに `context` のタイムアウトを付け、固まったGit（や子プロセスがパイプを握ったまま残るケース）でも戻ってくることをテストしています。
-- **Gitの状態を変えない**: `init` が `commitcoach.repositoryId` をローカル設定に書く以外は、読み取り専用のコマンドだけを使い、`GIT_OPTIONAL_LOCKS=0`、`GIT_TERMINAL_PROMPT=0` を付けます。フックの中から `git commit` や `git add` を呼ぶことはありません。
+- **Gitの状態を変えない**: `init` が `nanicommit.repositoryId` をローカル設定に書く以外は、読み取り専用のコマンドだけを使い、`GIT_OPTIONAL_LOCKS=0`、`GIT_TERMINAL_PROMPT=0` を付けます。フックの中から `git commit` や `git add` を呼ぶことはありません。
 - **保存**: 一時ファイルに書いて `fsync` してから `rename` するので、途中までのJSONは残りません。同時に実行されても各プロセスが別の一時ファイルを使うため、中身が混ざりません（最後の `rename` が勝つ）。保存先のファイル名は16進数のcommit IDであることを検証してから組み立てます。
 
 ## テスト
@@ -500,7 +514,7 @@ go test -race ./...
 ## ディレクトリ構成
 
 ```
-cmd/commitcoach/main.go     エントリーポイント（cli.Run を呼ぶだけ）
+cmd/nanicommit/main.go     エントリーポイント（cli.Run を呼ぶだけ）
 internal/cli/               サブコマンド、入出力、終了コードの決定（ここだけが表示と終了コードを扱う）
 internal/gitrepo/           Git実行（runner.go）、リポジトリ検出・設定（repo.go）、commit取得（commit.go）、差分取得（diff.go）
 internal/event/             内部スナップショット（event.go, build.go）、出力する6項目への変換（payload.go）、上限値（limits.go）、機密ファイル判定（sensitive.go）
@@ -520,8 +534,8 @@ Goのモジュールパスは `github.com/kobadaidesu/hook-test` です（この
 
 - `event.Build` がcommitを読んで内部スナップショットを作り、`event.NewPayload` が6項目の `Payload` に変換し、`event.Marshal` がJSONにします。どれもファイルや標準出力に依存しないので、HTTP送信を追加してもGitまわりのコードは書き直す必要がありません。バックエンドへ送る本文は、いま保存・出力しているJSONそのものです。
 - 送信を足す場所は `internal/cli/snapshot.go` の `recordHead`（フック）と `runExport` です。たとえば `internal/sender` のようなパッケージを作り、保存済みのJSONを送る形にできます。
-- repository_id は今は手で設定しています。バックエンドのリポジトリ登録APIができたら、`init` でその結果を `commitcoach.repositoryId` に保存する形にできます（保存・読み込みは `internal/repoid`）。
-- フックの中で同期的に送信すると、ネットワークの遅延がそのまま `git commit` の待ち時間になります。`.git/commitcoach/events/` を送信待ちキュー（outbox）とみなし、別プロセスや次回実行時に送る設計を推奨します。送信済みかどうかの管理は今回実装していません。
+- repository_id は今は手で設定しています。バックエンドのリポジトリ登録APIができたら、`init` でその結果を `nanicommit.repositoryId` に保存する形にできます（保存・読み込みは `internal/repoid`）。
+- フックの中で同期的に送信すると、ネットワークの遅延がそのまま `git commit` の待ち時間になります。`.git/nanicommit/events/` を送信待ちキュー（outbox）とみなし、別プロセスや次回実行時に送る設計を推奨します。送信済みかどうかの管理は今回実装していません。
 
 ## 設計上の判断と理由
 
@@ -532,15 +546,15 @@ Goのモジュールパスは `github.com/kobadaidesu/hook-test` です（この
 | `files` の順序 | `diff` と同じ順（Gitの `diff-tree` のパス順） | `files[i]` と `diff` のセクションの並びを一致させ、順序を安定させるため |
 | `diff` の中身 | `git diff-tree -p` の出力をそのまま使うので、`index ...` 行、リネーム時の `similarity index` 行、空白を含むパスの `+++` 行末のタブなども含まれる | Gitの出力を加工しない方が正確で、`git apply` などとの互換性も保てるため |
 | repository_id の形式 | 8-4-4-4-12 の16進数だけ受け付け、小文字にそろえる。nil UUIDは拒否 | バックエンドのIDと確実に照合できるようにし、プレースホルダーを誤って使わないため |
-| repository_id の保存先 | リポジトリローカルのGit設定 `commitcoach.repositoryId`。読み込みもローカルだけ | フックからも読めて、新しい設定機構を増やさずに済むため。グローバル設定に置くと全リポジトリが同じIDになってしまうため |
+| repository_id の保存先 | リポジトリローカルのGit設定 `nanicommit.repositoryId`。読み込みもローカルだけ | フックからも読めて、新しい設定機構を増やさずに済むため。グローバル設定に置くと全リポジトリが同じIDになってしまうため |
 | 注意書きの出し先 | merge commitの比較方針、除外したファイル、UTF-8の置換などは標準エラー出力の `note:` 行に出す | JSONを6項目に限定するため |
-| 保存先とメッセージ | 保存先 `.git/commitcoach/events/<commit ID>.json` と、フックのメッセージ（`recorded the snapshot ...`）は以前のまま | 導入済みのフックのスクリプトを変えると「編集された」と判定され、更新も解除もできなくなるため |
+| 保存先とメッセージ | 保存先 `.git/nanicommit/events/<commit ID>.json` と、フックのメッセージ（`recorded the snapshot ...`）は以前のまま | 導入済みのフックのスクリプトを変えると「編集された」と判定され、更新も解除もできなくなるため |
 | Gitの最低バージョン | 2.31 | `rev-parse --path-format=absolute` で、どこから実行しても絶対パスを得るため |
 | `.gitattributes` の読み取り元 | Git 2.40以上では対象commitから読む | 作業ツリーの未commitの変更で、バイナリ判定などの結果が変わらないようにするため |
 
 ## 既知の制限・注意点
 
-- **フックが捕捉しない操作がある**: Git 2.43で実測したところ、`git merge` が自動で作るmerge commitでは `post-commit` は起動しませんでした（`post-merge` フックの管轄のため）。`git cherry-pick` と `git rebase` では起動しましたが、Gitのバージョンや操作によって変わり得るので保証しません。取りこぼしたcommitは `commitcoach export --commit <id>` で取得できます。
+- **フックが捕捉しない操作がある**: Git 2.43で実測したところ、`git merge` が自動で作るmerge commitでは `post-commit` は起動しませんでした（`post-merge` フックの管轄のため）。`git cherry-pick` と `git rebase` では起動しましたが、Gitのバージョンや操作によって変わり得るので保証しません。取りこぼしたcommitは `nanicommit export --commit <id>` で取得できます。
 - **上限を超えるcommitはJSONになりません**。大きな生成ファイルや依存ファイルを含むcommitでは、フックが警告を出して保存を見送ります。
 - **pushの制限はしません**。バックエンドへの送信もしません。今回はJSONを保存・出力するだけです。
 - **repository_id は手で設定します**。値がバックエンドに実在するかは確認しません（形式だけを検証します）。

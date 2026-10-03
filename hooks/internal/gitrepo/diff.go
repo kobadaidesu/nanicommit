@@ -106,7 +106,7 @@ func (r *Repo) Diff(ctx context.Context, base, target string, opt DiffOptions) (
 	// empty index) rules that out, so only committed objects are read.
 	// GIT_ATTR_SOURCE (Git 2.40+; ignored by older versions) makes it read
 	// .gitattributes from the commit instead of the working tree as well.
-	noIndex, err := os.MkdirTemp("", "commitcoach-")
+	noIndex, err := os.MkdirTemp("", "nanicommit-")
 	if err != nil {
 		return nil, err
 	}
